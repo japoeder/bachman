@@ -1,0 +1,16 @@
+# This file may be used to create an environment using:
+# $ conda create --name <env> --file <this file>
+# platform: osx-arm64
+numpy==1.26
+pandas==2.1.4
+pre-commit==3.6.1
+pylint==2.16.2
+pybrowsers==0.5.2
+flatten_json==0.1.14
+flask==3.0.3
+boto3==1.26.11
+python-dotenv==1.0.0
+requests==2.31.0
+flask
+alpaca_trade_api
+pymongo
