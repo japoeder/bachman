@@ -1,9 +1,8 @@
-
-# Hendricks
+# Bachman
 
 ### Introduction
 
-This is a rule based model for collectability.
+Stream simulator for dev and model / scenario testing.
 
 1. Read input job file (should be a json object) supplied by the user
    2. If raw data is in another format, use 'utilities/make_json.py' to convert

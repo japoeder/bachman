@@ -14,3 +14,5 @@ requests==2.31.0
 flask
 alpaca_trade_api
 pymongo
+websockets
+dotenv
