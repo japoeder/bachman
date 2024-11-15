@@ -9,10 +9,9 @@ pybrowsers==0.5.2
 flatten_json==0.1.14
 flask==3.0.3
 boto3==1.26.11
-python-dotenv==1.0.0
 requests==2.31.0
 flask
 alpaca_trade_api
 pymongo
 websockets
-dotenv
+python-dotenv
