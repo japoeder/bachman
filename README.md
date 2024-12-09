@@ -4,24 +4,21 @@
 
 Stream simulator for dev and model / scenario testing.
 
-1. Read input job file (should be a json object) supplied by the user
-   2. If raw data is in another format, use 'utilities/make_json.py' to convert
-2. Update the tuning parameters if necessary in 'tuning.json'
-3. Comment out open_html method to prevent browser from opening html formatted report.
-4. Dictionary objects from each step contain important data from respective stage.
+1. Step 1.
 
 ### Running the model
 
-1. Download and install Python on your computer
-2. Clone this repo, and navigate to [pid_0001_collectability_model](.) directory (containing the README.md)
-3. Set up environment by running the following in the terminal:
+1. Local
+2. Download and install Python on your computer
+3. Clone this repo, and navigate to [pid_0001_collectability_model](.) directory (containing the README.md)
+4. Set up environment by running the following in the terminal:
 
    1. conda create --name pid_0001_collectability_model python=3.10
    2. conda activate pid_0001_collectability_model
    3. conda config --add channels conda-forge
    4. pip install -r requirements.txt
-4. To run the model, run the Flask app and submit a POST request in the proper form
-5. There's a sample POST request in 'collectability_model/templates', as well as samples to illustrate what data is required for base and enhnced models
+5. To run the model, run the Flask app and submit a POST request in the proper form
+6. There's a sample POST request in 'collectability_model/templates', as well as samples to illustrate what data is required for base and enhnced models
 
 The result is a response object in JSON with the model results.  Note that the model inputs and results are also output to S3 in the following buckets:
 

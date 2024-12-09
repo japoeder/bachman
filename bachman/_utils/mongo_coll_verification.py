@@ -3,7 +3,7 @@ Verify the existence of a MongoDB collection and create it if it doesn't exist.
 """
 
 from pymongo.errors import OperationFailure
-from _utils.mongo_conn import mango_conn
+from bachman._utils.mongo_conn import mongo_conn
 
 
 def confirm_mongo_collect_exists(collection_name):
@@ -11,7 +11,7 @@ def confirm_mongo_collect_exists(collection_name):
     Verify the existence of a MongoDB collection and create it if it doesn't exist.
     """
     # Get the database connection
-    db = mango_conn()
+    db = mongo_conn()
 
     # Check if the collection exists
     if collection_name in db.list_collection_names():

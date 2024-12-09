@@ -159,12 +159,9 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-pid_001_collectability_model_v1/collectability/project_docs/
+
 .DS_Store
 .idea/
-pid_0001_collectability_model_v1/.DS_Store
-pid_0001_collectability_model_v1/collectability/.DS_Store
 _scratch/
-collectability_model/project_docs/_bak/
 _data/
-aws.env
+_notes
