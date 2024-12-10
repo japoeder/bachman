@@ -1,6 +1,7 @@
 """
 Load Alpaca API credentials from JSON file.
 """
+
 import json
 from dotenv import load_dotenv
 
