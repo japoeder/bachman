@@ -3,10 +3,11 @@ Test RAG queries on financial documents.
 """
 
 import os
-from bachman._utils.rag_util import setup_rag_pipeline, query_financial_data
 
-# from bachman._utils.load_credentials import load_credentials
-from bachman._utils.get_path import get_path
+from quantum_trade_utilities.data.get_path import get_path
+
+# from quantum_trade_utilities.core.load_credentials import load_credentials
+from bachman.rag_util import setup_rag_pipeline, query_financial_data
 
 
 def test_financial_query():
