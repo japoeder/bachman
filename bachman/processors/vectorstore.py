@@ -49,10 +49,17 @@ sys.path.append(
 logger = logging.getLogger(__name__)
 
 
+class CollectionDescription(BaseModel):
+    """Model for a single collection."""
+
+    name: str
+    # Add other fields that come from Qdrant collection description
+
+
 class CollectionResponse(BaseModel):
     """Model for collection response."""
 
-    result: dict = {"collections": List[str]}
+    collections: List[CollectionDescription]
     status: str = "ok"
 
 
@@ -470,13 +477,21 @@ class VectorStore:
         """Get list of all collections."""
         try:
             response = requests.get(
-                f"http://{self.host}:{self.port}/collections",
-                timeout=60,  # 10 second timeout
+                f"http://{self.host}:{self.port}/collections", timeout=10
             )
             if response.status_code == 200:
+                # Add debug logging to see the actual response
                 logger.debug(f"Collections response: {response.text}")
-                data = CollectionResponse.model_validate(response.json())
-                return data.result["collections"]
+                data = response.json()
+                # Modify the response structure to match what Qdrant returns
+                collections_data = {
+                    "collections": [
+                        {"name": c["name"]} for c in data.get("collections", [])
+                    ],
+                    "status": "ok",
+                }
+                validated = CollectionResponse.model_validate(collections_data)
+                return [c.name for c in validated.collections]
             return None
         except Exception as e:
             logger.warning(f"Could not fetch collections, but continuing: {str(e)}")
