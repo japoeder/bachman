@@ -47,3 +47,6 @@ pytest
 langchain-community
 pymupdf
 tabula
+groq
+langchain_groq
+sentence_transformers
