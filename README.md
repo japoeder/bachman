@@ -8,28 +8,28 @@
 
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-A robust financial data ingestion service for real-time and historical stock pricing, company news, social data, and more.
+A robust financial document processing service for sentiment analysis, content extraction, and semantic search powered by Groq LLM and vector storage.
 
 ## 📋 Table of Contents
 
 - [Bachman 🚀](#bachman-)
-    - [📋 Table of Contents](#-table-of-contents)
-    - [🔍 Overview](#-overview)
-    - [✨ Features](#-features)
-    - [🛠 Installation](#-installation)
-    - [⚙️ Configuration](#️-configuration)
-        - [LLM Services](#llm-services)
-        - [Vector Storage](#vector-storage)
-        - [Processing Options](#processing-options)
-    - [📖 Usage](#-usage)
-        - [API Endpoints](#api-endpoints)
-            - [Process Document](#process-document)
-            - [Parameters](#parameters)
-            - [Analyze Text](#analyze-text)
-    - [📁 Project Structure](#-project-structure)
-    - [🔧 Development](#-development)
-        - [Service Management](#service-management)
-        - [Code Quality](#code-quality)
+  - [📋 Table of Contents](#-table-of-contents)
+  - [🔍 Overview](#-overview)
+  - [✨ Features](#-features)
+  - [🛠 Installation](#-installation)
+  - [⚙️ Configuration](#️-configuration)
+    - [LLM Services](#llm-services)
+    - [Vector Storage](#vector-storage)
+    - [Processing Options](#processing-options)
+  - [📖 Usage](#-usage)
+    - [API Endpoints](#api-endpoints)
+      - [Process Document](#process-document)
+      - [Parameters](#parameters)
+      - [Analyze Text](#analyze-text)
+  - [📁 Project Structure](#-project-structure)
+  - [🔧 Development](#-development)
+    - [Service Management](#service-management)
+    - [Code Quality](#code-quality)
 
 ## 🔍 Overview
 
