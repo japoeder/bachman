@@ -80,7 +80,8 @@ disable=
     too-many-arguments,
     consider-using-in,
     no-member,
-    too-many-positional-arguments
+    too-many-positional-arguments,
+    inconsistent-return-statements
 #    len-as-condition,
 #    too-few-public-methods,
 #    anomalous-backslash-in-string,

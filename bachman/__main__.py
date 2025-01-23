@@ -14,9 +14,9 @@ from functools import wraps
 import argparse
 from typing import Optional
 import uuid
-import dotenv
 
 # Third-party imports
+import dotenv
 from langchain.schema import Document
 from flask import Flask, request, jsonify
 
@@ -34,6 +34,10 @@ from bachman.processors.vectorstore import VectorStore
 from bachman.processors.sentiment import SentimentAnalyzer
 from bachman.models.llm import get_groq_llm
 from bachman.models.embeddings import get_embeddings
+from bachman.processors.text_processor import TextProcessor
+from bachman.processors.chunking import ChunkingConfig
+from bachman.processors.document_types import DocumentType
+from bachman.processors.file_processor import FileProcessor
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -120,6 +124,7 @@ def requires_api_key(f):
 embeddings = None
 vector_store = None
 sentiment_analyzer = None
+file_processor = None
 
 try:
     logger.info("Starting component initialization...")
@@ -128,7 +133,7 @@ try:
     embeddings = get_embeddings()
     logger.info("Embeddings model initialized successfully")
 
-    # Initialize vector store client - explicitly set host and port
+    # Initialize vector store client
     logger.info("Connecting to Qdrant at 192.168.1.10:8716")
     vector_store = VectorStore(
         host="192.168.1.10",
@@ -137,10 +142,18 @@ try:
     )
     logger.info("Vector store initialized successfully at 192.168.1.10:8716")
 
+    # Initialize text processor
+    text_processor = TextProcessor(vector_store)
+    logger.info("Text processor initialized successfully")
+
     # Initialize LLM and sentiment analyzer
     llm = get_groq_llm()
     sentiment_analyzer = SentimentAnalyzer(llm=llm)
     logger.info("Sentiment analyzer initialized successfully")
+
+    # Initialize file processor
+    file_processor = FileProcessor(text_processor)
+    logger.info("File processor initialized successfully")
 
 except Exception as e:
     logger.error(f"Failed to initialize components: {str(e)}")
@@ -288,6 +301,119 @@ def analyze_pdf(
         raise
 
 
+@app.route("/bachman/process_text", methods=["POST"])
+@requires_api_key
+def process_text():
+    """
+    Text processing endpoint without sentiment analysis.
+    Accepts chunking configuration parameters.
+    """
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        # Extract and validate collection name
+        collection_name = data.get("collection_name")
+        if not collection_name:
+            return jsonify({"error": "collection_name is required"}), 400
+
+        # Get text from request
+        text = data.get("text")
+        if not text:
+            return jsonify({"error": "No text provided"}), 400
+
+        # Extract chunking configuration if provided
+        chunking_config = None
+        if "chunking_config" in data:
+            try:
+                chunking_config = ChunkingConfig(
+                    strategy=data["chunking_config"].get("strategy", "recursive"),
+                    chunk_size=data["chunking_config"].get("chunk_size", 4096),
+                    chunk_overlap=data["chunking_config"].get("chunk_overlap", 200),
+                    separators=data["chunking_config"].get("separators"),
+                    min_chunk_size=data["chunking_config"].get("min_chunk_size", 100),
+                )
+                logger.info(f"Using custom chunking configuration: {chunking_config}")
+            except Exception as e:
+                logger.warning(
+                    f"Invalid chunking configuration provided: {e}. Using defaults."
+                )
+
+        # Process text with all configurations
+        result = text_processor.process_text(
+            text=text,
+            collection_name=collection_name,
+            metadata=data.get("metadata"),
+            skip_if_exists=data.get("skip_if_exists", False),
+            chunking_config=chunking_config,
+        )
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"Error processing request: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/bachman/process_file", methods=["POST"])
+@requires_api_key
+def process_file():
+    """
+    File processing endpoint with flexible options.
+    """
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        # Required fields
+        file_path = data.get("file_path")
+        collection_name = data.get("collection_name")
+
+        # Optional fields with defaults
+        document_type = DocumentType(data.get("document_type", "generic"))
+        process_sentiment = data.get("process_sentiment", True)
+
+        result = file_processor.process_file(
+            file_path=file_path,
+            collection_name=collection_name,
+            document_type=document_type,
+            process_sentiment=process_sentiment,
+            chunking_config=data.get("chunking_config"),
+            metadata=data.get("metadata"),
+        )
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"Error processing request: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/bachman/get_sentiment", methods=["POST"])
+@requires_api_key
+def get_sentiment():
+    """
+    Retrieve or generate sentiment for previously processed document.
+    """
+    try:
+        data = request.json
+        doc_id = data.get("doc_id")
+        if not doc_id:
+            return jsonify({"error": "doc_id is required"}), 400
+
+        result = sentiment_analyzer.process_document(
+            doc_id=doc_id, collection_name=data.get("collection_name")
+        )
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"Error processing sentiment request: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
 def main():
     """
     Main method to call RAG bot.
@@ -309,7 +435,12 @@ def main():
 
 
 if __name__ == "__main__":
-    if embeddings is None or vector_store is None or sentiment_analyzer is None:
+    if (
+        embeddings is None
+        or vector_store is None
+        or sentiment_analyzer is None
+        or file_processor is None
+    ):
         logger.error("Required components not initialized. Exiting.")
         sys.exit(1)
     app.run(host="0.0.0.0", port=8713)
