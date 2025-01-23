@@ -46,3 +46,4 @@ langchain-qdrant
 pytest
 langchain-community
 pymupdf
+tabula
