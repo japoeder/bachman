@@ -39,6 +39,7 @@ from langchain.schema import Document
 from qdrant_client import QdrantClient, models
 from tqdm import tqdm
 import requests
+from pydantic import BaseModel
 
 # Local application imports
 sys.path.append(
@@ -46,6 +47,13 @@ sys.path.append(
 )
 
 logger = logging.getLogger(__name__)
+
+
+class CollectionResponse(BaseModel):
+    """Model for collection response."""
+
+    result: dict = {"collections": List[str]}
+    status: str = "ok"
 
 
 class VectorStore:
@@ -457,3 +465,19 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Error deleting collection {collection_name}: {str(e)}")
             raise
+
+    def get_collections(self) -> Optional[List[str]]:
+        """Get list of all collections."""
+        try:
+            response = requests.get(
+                f"http://{self.host}:{self.port}/collections",
+                timeout=60,  # 10 second timeout
+            )
+            if response.status_code == 200:
+                logger.debug(f"Collections response: {response.text}")
+                data = CollectionResponse.model_validate(response.json())
+                return data.result["collections"]
+            return None
+        except Exception as e:
+            logger.warning(f"Could not fetch collections, but continuing: {str(e)}")
+            return None
