@@ -17,7 +17,7 @@ Example:
 import logging
 import platform
 from typing import List, Union
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.embeddings.base import Embeddings
 from groq import Groq
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -157,3 +157,14 @@ def get_embeddings_info(
             "device": embeddings.model_kwargs.get("device", "cpu"),
             "model_type": "HuggingFace BGE",
         }
+
+
+def get_bge_embeddings() -> HuggingFaceEmbeddings:
+    """Initialize BGE embeddings model."""
+    logger.info("Initializing HuggingFace BGE embeddings model")
+    embeddings = HuggingFaceEmbeddings(
+        model_name="BAAI/bge-small-en-v1.5",
+        model_kwargs={"device": "cpu"},
+        encode_kwargs={"normalize_embeddings": True},
+    )
+    return embeddings

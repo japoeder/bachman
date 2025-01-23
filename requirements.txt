@@ -50,3 +50,4 @@ tabula
 groq
 langchain_groq
 sentence_transformers
+langchain-huggingface
