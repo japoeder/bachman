@@ -15,6 +15,7 @@ repos:
         [
           "-rn", # Only display messages
           "-sn", # Don't display the score
-          --disable=import-error
+          "--disable=import-error",
+          "--disable=wrong-import-position",
         ]
 

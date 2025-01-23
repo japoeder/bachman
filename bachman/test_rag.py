@@ -3,8 +3,12 @@ Test RAG queries on financial documents.
 """
 
 import os
+import sys
+import dotenv
+from quantum_trade_utilities.core.get_path import get_path
 
-from quantum_trade_utilities.data.get_path import get_path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+dotenv.load_dotenv(get_path("env"))
 
 # from quantum_trade_utilities.core.load_credentials import load_credentials
 from bachman.rag_util import setup_rag_pipeline, query_financial_data
