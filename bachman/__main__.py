@@ -14,6 +14,7 @@ from functools import wraps
 import argparse
 from typing import Optional
 import uuid
+import dotenv
 
 # Third-party imports
 from langchain.schema import Document
@@ -22,6 +23,10 @@ from flask import Flask, request, jsonify
 # Local application imports
 from quantum_trade_utilities.data.load_credentials import load_credentials
 from quantum_trade_utilities.core.get_path import get_path
+
+dotenv.load_dotenv(get_path("env"))
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bachman.utils.format_results import format_analysis_results
 from bachman.loaders.document_loader import DocumentLoader
@@ -124,15 +129,13 @@ try:
     logger.info("Embeddings model initialized successfully")
 
     # Initialize vector store client - explicitly set host and port
-    logger.info(f"Connecting to Qdrant at {QUADRANT_HOST}:{QUADRANT_PORT}")
+    logger.info("Connecting to Qdrant at 192.168.1.10:8716")
     vector_store = VectorStore(
-        host=QUADRANT_HOST,  # This should be "192.168.1.10"
-        port=QUADRANT_PORT,  # This should be 8714
+        host="192.168.1.10",
+        port=8716,
         embedding_function=embeddings,
     )
-    logger.info(
-        f"Vector store initialized successfully at {QUADRANT_HOST}:{QUADRANT_PORT}"
-    )
+    logger.info("Vector store initialized successfully at 192.168.1.10:8716")
 
     # Initialize LLM and sentiment analyzer
     llm = get_groq_llm()
@@ -241,7 +244,7 @@ def analyze_pdf(
         )
 
         embeddings = get_embeddings()
-        vectorstore = VectorStore(host=QUADRANT_HOST, port=QUADRANT_PORT)
+        vectorstore = VectorStore(host="192.168.1.10", port=8716)
 
         llm = get_groq_llm()
         analyzer = SentimentAnalyzer(llm)

@@ -76,9 +76,13 @@ class VectorStore:
 
     def __init__(self, host: str, port: int, embedding_function=None):
         """Initialize VectorStore with Qdrant client."""
-        self.host = host  # Store host
-        self.port = port  # Store port
-        self.client = QdrantClient(check_compatibility=False)
+        self.host = host
+        self.port = port
+        self.client = QdrantClient(
+            host=host,
+            port=8716,  # Change to use the API port instead of direct Qdrant port
+            check_compatibility=False,
+        )
         self.embedding_function = embedding_function
         logger.info(f"Initialized Qdrant client for {host}:{port}")
 
