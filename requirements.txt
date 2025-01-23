@@ -45,3 +45,4 @@ torchaudio
 langchain-qdrant
 pytest
 langchain-community
+pymupdf
