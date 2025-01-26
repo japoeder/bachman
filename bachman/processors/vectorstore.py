@@ -692,3 +692,46 @@ class VectorStore:
         except Exception as e:
             print(f"Error searching: {str(e)}")
             return []
+
+    def search(
+        self, collection_name: str, metadata_filter: dict, limit: int = 1
+    ) -> list:
+        """
+        Search for documents in the vector store using metadata filters.
+
+        Args:
+            collection_name (str): Name of the collection to search in
+            metadata_filter (dict): Metadata filter conditions
+            limit (int): Maximum number of results to return
+
+        Returns:
+            list: List of matching documents with their metadata
+        """
+        try:
+            # Convert metadata filter to Qdrant filter format
+            conditions = {
+                "must": [
+                    {"key": key, "match": {"value": value}}
+                    for key, value in metadata_filter.items()
+                ]
+            }
+
+            # Perform the search using Qdrant's scroll
+            results = self.client.scroll(
+                collection_name=collection_name,
+                limit=limit,
+                query_filter=conditions,  # Changed from filter to query_filter
+                with_payload=True,
+                with_vectors=False,
+            )[0]
+
+            # Format the results
+            formatted_results = []
+            for hit in results:
+                formatted_results.append({"metadata": hit.payload, "score": 1.0})
+
+            return formatted_results
+
+        except Exception as e:
+            logger.error(f"Error searching vector store: {str(e)}")
+            raise

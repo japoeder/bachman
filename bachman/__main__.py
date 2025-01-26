@@ -15,6 +15,9 @@ import argparse
 from typing import Optional
 import uuid
 import asyncio
+import json
+import requests
+
 
 # Third-party imports
 import dotenv
@@ -416,6 +419,101 @@ def get_sentiment():
 
     except Exception as e:
         logger.error(f"Error processing sentiment request: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/bachman/search", methods=["POST"])
+@requires_api_key
+def search():
+    """
+    Search endpoint to query existing documents in the vector store.
+    Supports both doc_id lookups and general metadata searches.
+    """
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        # Log just the search request details
+        logger.info("=" * 80)
+        logger.info("SEARCH REQUEST DETAILS")
+        logger.info("=" * 80)
+        logger.info(f"Request data: {json.dumps(data, indent=2)}")
+
+        # Extract and validate collection name
+        collection_name = data.get("collection_name")
+        if not collection_name:
+            return jsonify({"error": "collection_name is required"}), 400
+
+        # Get query parameters
+        metadata_filter = data.get("metadata", {})
+        if not metadata_filter:
+            return jsonify({"error": "Query metadata is required"}), 400
+
+        # Prepare filter conditions
+        filter_conditions = []
+        for key, value in metadata_filter.items():
+            filter_conditions.append({"key": key, "match": {"value": value}})
+
+        # Make the search request
+        search_url = (
+            f"http://{vector_store.host}:8716/collections/{collection_name}/search"
+        )
+        search_payload = {
+            "query_vector": [0] * 1024,
+            "filter": {"must": filter_conditions},
+            "limit": 100,
+        }
+
+        response = requests.post(
+            search_url,
+            json=search_payload,
+            timeout=10,
+        )
+
+        if response.status_code == 200:
+            raw_results = response.json()
+
+            # Format the results
+            formatted_results = []
+            for hit in raw_results:
+                metadata = hit.get("payload", {})
+                formatted_result = {
+                    "id": hit.get("id"),
+                    "metadata": {
+                        "doc_id": metadata.get("doc_id"),
+                        "ticker": metadata.get("ticker"),
+                        "source": metadata.get("source"),
+                        "report_type": metadata.get("report_type"),
+                        "timestamp": metadata.get("timestamp"),
+                    },
+                    "chunks": metadata.get("chunks", []),
+                    "text_preview": metadata.get("text", "")[:100] + "..."
+                    if metadata.get("text")
+                    else None,
+                }
+                formatted_results.append(formatted_result)
+
+            # Log just the formatted results
+            logger.info("\nRESULTS")
+            logger.info(json.dumps(formatted_results, indent=2))
+            logger.info("=" * 80)
+
+            return (
+                jsonify(
+                    {"count": len(formatted_results), "results": formatted_results}
+                ),
+                200,
+            )
+        else:
+            logger.error(f"Search failed with status {response.status_code}")
+            return (
+                jsonify({"error": f"Search failed with status {response.status_code}"}),
+                500,
+            )
+
+    except Exception as e:
+        logger.error(f"Error processing search request: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
