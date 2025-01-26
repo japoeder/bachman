@@ -13,7 +13,8 @@ import signal
 from functools import wraps
 import argparse
 from typing import Optional
-import uuid
+
+# import uuid
 import asyncio
 
 # Third-party imports
@@ -41,6 +42,7 @@ from bachman.processors.text_processor import TextProcessor
 from bachman.processors.chunking import ChunkingConfig
 from bachman.processors.document_types import DocumentType
 from bachman.processors.file_processor import FileProcessor
+from bachman.analysis.construct_analysis import AnalysisType, get_analysis_instructions
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -168,67 +170,85 @@ except Exception as e:
 @requires_api_key
 def analyze():
     """
-    Text analysis endpoint.
+    Text analysis endpoint for existing documents.
     """
     try:
         data = request.json
         if not data:
             return jsonify({"error": "No data provided"}), 400
 
-        # Extract and validate collection name
+        # Extract and validate collection name and metadata
         collection_name = data.get("collection_name")
         if not collection_name:
             return jsonify({"error": "collection_name is required"}), 400
 
-        logger.info(
-            f"Processing analysis request for ticker: {data.get('ticker', 'UNKNOWN')} in collection: {collection_name}"
-        )
+        metadata = data.get("metadata", {})
+        doc_id = metadata.get("doc_id")
+        if not doc_id:
+            return jsonify({"error": "doc_id is required in metadata"}), 400
 
-        # Get text from request
-        text = data.get("text")
-        if not text:
-            return jsonify({"error": "No text provided"}), 400
+        # Search for document in vector store
+        try:
+            matching_docs = asyncio.run(
+                vector_store.search_by_doc_id(collection_name, doc_id)
+            )
 
-        # Ensure collection exists before processing
-        vector_store.ensure_collection(collection_name)
+            if not matching_docs:
+                return (
+                    jsonify(
+                        {
+                            "error": f"Document with doc_id {doc_id} not found. Please process the document first using the /process_text endpoint."
+                        }
+                    ),
+                    404,
+                )
 
-        # Create document
-        doc = Document(
-            page_content=text,
-            metadata={
-                "ticker": data.get("ticker", "UNKNOWN"),
-                "type": data.get("analysis_type", "sentiment"),
-                "source": data.get("load_type", "live"),
-                "id": str(uuid.uuid4()),
-            },
-        )
+            doc_text = matching_docs[0].get("payload", {}).get("text")
+            if not doc_text:
+                return jsonify({"error": "Document found but contains no text"}), 500
 
-        # Analyze sentiment first
-        sentiment_result = sentiment_analyzer.analyze_text([doc])
+            # Parse document and analysis types
+            try:
+                doc_type = DocumentType(metadata.get("report_type", "generic"))
+                analysis_type = AnalysisType(metadata.get("analysis_type", "sentiment"))
+            except ValueError as e:
+                return (
+                    jsonify({"error": f"Invalid document or analysis type: {str(e)}"}),
+                    400,
+                )
 
-        # Format results using the utility function
-        format_analysis_results(
-            analysis_type=doc.metadata["type"],
-            result=sentiment_result,
-            metadata=doc.metadata,
-        )
+            # Get analysis instructions based on document and analysis types
+            instructions = get_analysis_instructions(doc_type, analysis_type)
 
-        # Store document with metadata in the specified collection
-        storage_result = vector_store.store_vectors(
-            collection_name=collection_name,
-            texts=[text],
-            metadatas=[doc.metadata],
-            # force_recreate=data.get("force_recreate", False),
-        )
-        logger.info(f"Successfully stored document in collection: {collection_name}")
+            # Create document with metadata
+            doc = Document(
+                page_content=doc_text,
+                metadata={
+                    "ticker": metadata.get("ticker", "UNKNOWN"),
+                    "doc_id": doc_id,
+                    "type": doc_type.value,
+                    "analysis_type": analysis_type.value,
+                    "source": metadata.get("source", "unknown"),
+                },
+            )
 
-        # Return both results
-        return (
-            jsonify(
-                {"sentiment_analysis": sentiment_result, "storage": storage_result}
-            ),
-            200,
-        )
+            # Analyze with specific instructions
+            sentiment_result = sentiment_analyzer.analyze_text(
+                [doc], instructions=instructions
+            )
+
+            # Format results using the utility function
+            formatted_results = format_analysis_results(
+                analysis_type=analysis_type.value,
+                result=sentiment_result,
+                metadata=doc.metadata,
+            )
+
+            return jsonify(formatted_results), 200
+
+        except Exception as e:
+            logger.error(f"Error searching for document: {str(e)}")
+            return jsonify({"error": str(e)}), 500
 
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
@@ -417,6 +437,90 @@ def get_sentiment():
     except Exception as e:
         logger.error(f"Error processing sentiment request: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/bachman/search", methods=["POST"])
+@requires_api_key
+def search():
+    """
+    Search endpoint to find documents based on metadata criteria.
+    """
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        # Extract and validate collection name
+        collection_name = data.get("collection_name")
+        if not collection_name:
+            return jsonify({"error": "collection_name is required"}), 400
+
+        # Get metadata criteria
+        metadata = data.get("metadata", {})
+        if not metadata:
+            return jsonify({"error": "metadata criteria required"}), 400
+
+        # Search for documents in vector store
+        try:
+            # Run the search synchronously using asyncio.run
+            matching_docs = asyncio.run(
+                vector_store.search_by_metadata(collection_name, metadata)
+            )
+
+            if not matching_docs:
+                return (
+                    jsonify(
+                        {
+                            "status": "success",
+                            "message": "No documents found matching the criteria",
+                            "data": [],
+                        }
+                    ),
+                    200,
+                )
+
+            # Format the response
+            results = [
+                {
+                    "doc_id": doc.get("payload", {}).get("doc_id"),
+                    "metadata": doc.get("payload", {}).get("metadata", {}),
+                    "text": doc.get("payload", {}).get("text"),
+                }
+                for doc in matching_docs
+            ]
+
+            return (
+                jsonify(
+                    {
+                        "status": "success",
+                        "message": f"Found {len(results)} document(s)",
+                        "data": results,
+                    }
+                ),
+                200,
+            )
+
+        except Exception as e:
+            logger.error(f"Error searching documents: {str(e)}")
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "message": f"Error searching documents: {str(e)}",
+                        "error_type": "search_error",
+                    }
+                ),
+                500,
+            )
+
+    except Exception as e:
+        logger.error(f"Error processing request: {str(e)}")
+        return (
+            jsonify(
+                {"status": "error", "message": str(e), "error_type": "request_error"}
+            ),
+            500,
+        )
 
 
 def main():

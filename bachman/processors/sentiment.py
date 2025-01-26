@@ -4,7 +4,7 @@ Method for analyzing sentiment
 
 import logging
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 from langchain.schema import Document
 
@@ -31,8 +31,19 @@ class SentimentAnalyzer:
 
 Do not include any other text, explanation, or markdown formatting. Return only the JSON object."""
 
-    def analyze_text(self, documents: List[Document]) -> Dict[str, Any]:
-        """Analyze sentiment from a list of documents."""
+    def analyze_text(
+        self, documents: List[Document], instructions: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Analyze text with optional custom instructions.
+
+        Args:
+            documents: List of documents to analyze
+            instructions: Custom instructions for the analysis (from construct_analysis)
+
+        Returns:
+            Analysis results as a dictionary
+        """
         try:
             # Combine document content
             combined_text = "\n\n".join(doc.page_content for doc in documents)

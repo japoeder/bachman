@@ -692,3 +692,47 @@ class VectorStore:
         except Exception as e:
             print(f"Error searching: {str(e)}")
             return []
+
+    async def search_by_metadata(self, collection_name: str, metadata: dict) -> list:
+        """
+        Search for documents in a collection based on metadata criteria.
+
+        Args:
+            collection_name (str): Name of the collection to search
+            metadata (dict): Dictionary of metadata key-value pairs to match
+
+        Returns:
+            list: List of matching documents with their payloads
+        """
+        try:
+            # Build the filter based on metadata
+            filter_conditions = {
+                f"payload.metadata.{key}": value for key, value in metadata.items()
+            }
+
+            # If doc_id is provided in metadata, search by payload.doc_id instead
+            if "doc_id" in metadata:
+                filter_conditions = {"payload.doc_id": metadata["doc_id"]}
+
+            # Search the collection with the filter
+            search_result = await self.client.scroll(
+                collection_name=collection_name,
+                scroll_filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key=key, match=models.MatchValue(value=value)
+                        )
+                        for key, value in filter_conditions.items()
+                    ]
+                ),
+                limit=100,  # Adjust this limit as needed
+            )
+
+            # Extract points from the result
+            if search_result and hasattr(search_result, "points"):
+                return search_result.points
+            return []
+
+        except Exception as e:
+            logger.error(f"Error searching collection {collection_name}: {str(e)}")
+            raise
