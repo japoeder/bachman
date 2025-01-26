@@ -81,7 +81,10 @@ disable=
     consider-using-in,
     no-member,
     too-many-positional-arguments,
-    inconsistent-return-statements
+    inconsistent-return-statements,
+    too-few-public-methods,
+    too-many-return-statements,
+    import-outside-toplevel
 #    len-as-condition,
 #    too-few-public-methods,
 #    anomalous-backslash-in-string,
