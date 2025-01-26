@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-![Bachman Banner](https://raw.githubusercontent.com/japoeder/bachman/main/bachman/_img/bachman_banner.png)
-=======
 ![Bachman Banner](https://raw.githubusercontent.com/japoeder/bachman/main/bachman/_img/bachman_banner.jpg)
->>>>>>> process-txt-only
 
 # Bachman 🚀
 
@@ -12,11 +8,7 @@
 
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-<<<<<<< HEAD
 A robust financial document processing service for sentiment analysis, content extraction, and semantic search powered by Groq LLM and vector storage.
-=======
-A robust financial data ingestion service for real-time and historical stock pricing, company news, social data, and more.
->>>>>>> process-txt-only
 
 ## 📋 Table of Contents
 
@@ -29,11 +21,9 @@ A robust financial data ingestion service for real-time and historical stock pri
     - [LLM Services](#llm-services)
     - [Vector Storage](#vector-storage)
     - [Processing Options](#processing-options)
-  - [📖 Usage](#-usage)
-    - [API Endpoints](#api-endpoints)
-      - [Process Document](#process-document)
-      - [Parameters](#parameters)
-      - [Analyze Text](#analyze-text)
+  - [📖 API Usage](#-api-usage)
+    - [Authentication](#authentication)
+    - [Endpoints](#endpoints)
   - [📁 Project Structure](#-project-structure)
   - [🔧 Development](#-development)
     - [Service Management](#service-management)
@@ -48,10 +38,6 @@ Bachman API is a specialized service for processing and analyzing financial docu
 3. **Vector Storage**: Enables efficient storage and retrieval of processed documents using Qdrant
 
 The service is designed to handle various financial document types including:
-<<<<<<< HEAD
-
-=======
->>>>>>> process-txt-only
 - Financial Statements
 - Earnings Call Transcripts
 - News Articles
@@ -60,27 +46,6 @@ The service is designed to handle various financial document types including:
 ## ✨ Features
 
 - Document Processing
-<<<<<<< HEAD
-    - PDF and text file support
-    - Automated table extraction
-    - Section recognition for financial documents
-    - Configurable chunking strategies
-- Sentiment Analysis
-    - Groq LLM integration
-    - Financial context awareness
-    - Batch and real-time processing
-    - Customizable analysis parameters
-- Storage & Retrieval
-    - Qdrant vector database integration
-    - Efficient document embedding
-    - Content-based similarity search
-    - Metadata-rich storage
-- System Features
-    - REST API interface
-    - Robust error handling and logging
-    - Configurable processing pipelines
-    - Document deduplication
-=======
   - PDF and text file support
   - Automated table extraction
   - Section recognition for financial documents
@@ -103,7 +68,6 @@ The service is designed to handle various financial document types including:
   - Robust error handling and logging
   - Configurable processing pipelines
   - Document deduplication
->>>>>>> process-txt-only
 
 ## 🛠 Installation
 
@@ -121,98 +85,6 @@ pip install -r requirements.txt
 Required API keys and settings:
 
 ### LLM Services
-<<<<<<< HEAD
-
-- **Groq**: Primary LLM for sentiment analysis and document processing
-    - Set `GROQ_API_KEY` in environment
-
-### Vector Storage
-
-- **Qdrant**: Document storage and retrieval
-    - Set `QDRANT_HOST` and `QDRANT_PORT` in environment
-
-### Processing Options
-
-- **Chunking**: Configure text splitting parameters
-    - Default chunk size: 512 tokens
-    - Default overlap: 50 tokens
-
-## 📖 Usage
-
-### API Endpoints
-
-#### Process Document
-
-```bash
-curl -X POST http://localhost:5000/bachman/process_file \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: your-api-key" \
-  -d '{
-    "file_path": "/path/to/document.pdf",
-    "collection_name": "financial_reports",
-    "document_type": "financial_statement"
-  }'
-```
-
-#### Parameters
-
-| Parameter           | Description             | Default     | Required |
-| ------------------- | ----------------------- | ----------- | -------- |
-| `file_path`         | Path to document        | -           | Yes      |
-| `collection_name`   | Vector store collection | "documents" | No       |
-| `document_type`     | Type of document        | "generic"   | No       |
-| `process_sentiment` | Run sentiment analysis  | true        | No       |
-| `skip_if_exists`    | Skip if hash exists     | false       | No       |
-
-#### Analyze Text
-
-```bash
-curl -X POST http://localhost:5000/bachman/analyze \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: your-api-key" \
-  -d '{
-    "text": "Your text content here",
-    "ticker": "AAPL",
-    "analysis_type": "sentiment"
-  }'
-```
-
-## 📁 Project Structure
-
-```
-bachman/
-├── README.md         # Project documentation
-├── __init__.py       # Package initialization
-├── processors/       # Core processing modules
-│   ├── chunking.py      # Text chunking logic
-│   ├── document_types.py# Document type definitions
-│   ├── file_processor.py# File handling logic
-│   ├── sentiment.py     # Sentiment analysis
-│   ├── text_processor.py# Text processing
-│   └── types.py         # Type definitions
-├── models/          # ML models
-│   ├── embeddings.py    # Document embedding
-│   └── llm.py          # LLM integration
-├── utils/           # Utility functions
-│   └── vector_store.py  # Vector DB operations
-├── .pre-commit-config.yaml
-├── .pylintrc
-├── pyproject.toml
-└── requirements.txt  # Dependencies
-```
-
-## 🔧 Development
-
-### Service Management
-
-```bash
-# Start the API service
-python -m bachman
-
-# Run tests
-pytest tests/
-
-=======
 - **Groq**: Primary LLM for sentiment analysis and document processing
   - Set `GROQ_API_KEY` in environment
 
@@ -225,42 +97,135 @@ pytest tests/
   - Default chunk size: 512 tokens
   - Default overlap: 50 tokens
 
-## 📖 Usage
+## 📖 API Usage
 
-### API Endpoints
+### Authentication
 
-#### Process Document
+All endpoints require an API key passed in the header:
 ```bash
-curl -X POST http://localhost:5000/bachman/process_file \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: your-api-key" \
-  -d '{
-    "file_path": "/path/to/document.pdf",
-    "collection_name": "financial_reports",
-    "document_type": "financial_statement"
-  }'
+-H "x-api-key: your-api-key"
 ```
 
-#### Parameters
+### Endpoints
 
-| Parameter | Description | Default | Required |
-| --------- | ----------- | ------- | -------- |
-| `file_path` | Path to document | - | Yes |
-| `collection_name` | Vector store collection | "documents" | No |
-| `document_type` | Type of document | "generic" | No |
-| `process_sentiment` | Run sentiment analysis | true | No |
-| `skip_if_exists` | Skip if hash exists | false | No |
+#### 1. Process Text
+Process and store text content with optional sentiment analysis.
 
-#### Analyze Text
 ```bash
-curl -X POST http://localhost:5000/bachman/analyze \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: your-api-key" \
-  -d '{
+POST /bachman/process_text
+```
+
+Request:
+```json
+{
     "text": "Your text content here",
+    "collection_name": "financial_reports",
+    "metadata": {
+        "ticker": "AAPL",
+        "source": "earnings_call"
+    },
+    "chunking_config": {
+        "strategy": "recursive",
+        "chunk_size": 4096,
+        "chunk_overlap": 200
+    },
+    "skip_if_exists": false
+}
+```
+
+#### 2. Process File
+Process and store document content from a file.
+
+```bash
+POST /bachman/process_file
+```
+
+Request:
+```json
+{
+    "file_path": "/path/to/document.pdf",
+    "collection_name": "financial_reports",
+    "document_type": "financial_statement",
+    "process_sentiment": true,
+    "metadata": {
+        "ticker": "AAPL",
+        "year": "2024"
+    }
+}
+```
+
+#### 3. Analyze Text
+Perform sentiment analysis on text content.
+
+```bash
+POST /bachman/analyze
+```
+
+Request:
+```json
+{
+    "text": "Your text content here",
+    "collection_name": "sentiment_analysis",
     "ticker": "AAPL",
-    "analysis_type": "sentiment"
-  }'
+    "analysis_type": "sentiment",
+    "load_type": "live"
+}
+```
+
+#### 4. Get Sentiment
+Retrieve sentiment analysis for a previously processed document.
+
+```bash
+POST /bachman/get_sentiment
+```
+
+Request:
+```json
+{
+    "doc_id": "document-uuid",
+    "collection_name": "financial_reports"
+}
+```
+
+#### 5. Search
+Search for documents in the vector store.
+
+```bash
+POST /bachman/search
+```
+
+Request:
+```json
+{
+    "collection_name": "financial_reports",
+    "metadata": {
+        "ticker": "AAPL",
+        "source": "earnings_call"
+    }
+}
+```
+
+#### 6. Delete
+Delete a specific point or entire collection.
+
+```bash
+PUT /bachman/delete
+```
+
+Delete specific point:
+```json
+{
+    "collection_name": "financial_reports",
+    "qdrant_id": "point-id"
+}
+```
+
+Delete entire collection:
+```json
+{
+    "collection_name": "financial_reports",
+    "confirm_coll_delete": true
+}
 ```
 
 ## 📁 Project Structure
@@ -298,17 +263,6 @@ python -m bachman
 # Run tests
 pytest tests/
 
->>>>>>> process-txt-only
 # Generate documentation
 pdoc --html bachman/
 ```
-
-### Code Quality
-
-This project uses:
-
-- Black for code formatting
-- Pylint for code analysis
-- Pre-commit hooks for consistency
-- Type hints throughout
-- Comprehensive docstrings
