@@ -517,6 +517,70 @@ def search():
         return jsonify({"error": str(e)}), 500
 
 
+# ! Note that the request will incorrectly state a point was deleted, even if it doesn't exist.
+# ! Logic to handle search to find and search to confirm should be handled in gilfoyle.
+@app.route("/bachman/delete", methods=["PUT"])
+@requires_api_key
+def delete():
+    """
+    Delete endpoint to remove a specific point from a collection using its Qdrant-assigned ID.
+    """
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        collection_name = data.get("collection_name")
+        if not collection_name:
+            return jsonify({"error": "collection_name is required"}), 400
+
+        qdrant_id = data.get("qdrant_id")  # This should be the Qdrant-assigned 'id'
+        if not qdrant_id:
+            return jsonify({"error": "qdrant_id is required"}), 400
+
+        # Delete point using points endpoint with PUT method
+        delete_url = (
+            f"http://{vector_store.host}:8716/collections/{collection_name}/points"
+        )
+        delete_payload = {
+            "points": [
+                {
+                    "id": qdrant_id,
+                    "vector": [0.0] * 1024,  # Required for PUT
+                    "_delete": True,
+                }
+            ]
+        }
+
+        response = requests.put(
+            delete_url,
+            json=delete_payload,
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+
+        if response.status_code == 200:
+            logger.info(f"Successfully deleted point with Qdrant ID: {qdrant_id}")
+            return (
+                jsonify(
+                    {
+                        "status": "success",
+                        "message": f"Successfully deleted point {qdrant_id}",
+                        "deleted_id": qdrant_id,
+                    }
+                ),
+                200,
+            )
+        else:
+            error_msg = f"Delete operation failed with status {response.status_code}: {response.text}"
+            logger.error(error_msg)
+            return jsonify({"error": error_msg}), response.status_code
+
+    except Exception as e:
+        logger.error(f"Error processing delete request: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
 def main():
     """
     Main method to call RAG bot.
