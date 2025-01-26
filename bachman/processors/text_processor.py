@@ -5,11 +5,14 @@ Text processing module for handling text content.
 import hashlib
 from typing import Optional, List, Dict
 import logging
+import datetime
 from langchain.text_splitter import (
     RecursiveCharacterTextSplitter,
     SentenceTransformersTokenTextSplitter,
 )
 from bachman.processors.chunking import ChunkingConfig, ChunkingStrategy
+
+# import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -60,19 +63,19 @@ class TextProcessor:
         self,
         text: str,
         collection_name: str,
-        metadata: Optional[Dict] = None,
+        metadata: Optional[dict] = None,
         skip_if_exists: bool = False,
         chunking_config: Optional[ChunkingConfig] = None,
     ) -> dict:
-        """Process single text into vector store."""
+        """Process and store text."""
         try:
+            # Check if text exists before processing
             if skip_if_exists:
-                # Check if similar text exists
-                if self.vector_store.text_exists(text, collection_name):
-                    return {
-                        "status": "skipped",
-                        "message": "Similar text already exists",
-                    }
+                exists = await self.vector_store.text_exists(
+                    collection_name, metadata.get("doc_id")
+                )
+                if exists:
+                    return {"status": "skipped", "reason": "document already exists"}
 
             # Get text splitter and split text
             text_splitter = self.get_text_splitter(chunking_config)
@@ -95,9 +98,19 @@ class TextProcessor:
                 metadata = {}
             metadata.update(hash_info)
 
+            # Update timestamp format and ensure metadata is used
+            metadata = {
+                "text": text,
+                "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+                **(metadata or {}),
+            }
+
             # Store text chunks in vector store
-            result = self.vector_store.store_vectors(
-                collection_name=collection_name, texts=texts, metadatas=metadatas
+            result = await self.vector_store.store_vectors(
+                collection_name=collection_name,
+                texts=[text],
+                metadatas=[metadata],
+                skip_if_exists=skip_if_exists,
             )
 
             return {
@@ -107,5 +120,5 @@ class TextProcessor:
                 "hash_info": hash_info,
             }
         except Exception as e:
-            logger.error(f"Error processing text: {str(e)}")
+            logger.error(f"Error in process_text: {str(e)}")
             raise

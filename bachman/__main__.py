@@ -14,11 +14,14 @@ from functools import wraps
 import argparse
 from typing import Optional
 import uuid
+import asyncio
 
 # Third-party imports
 import dotenv
 from langchain.schema import Document
 from flask import Flask, request, jsonify
+
+# from asgiref.wsgi import WsgiToAsgi  # If needed for ASGI server
 
 # Local application imports
 from quantum_trade_utilities.data.load_credentials import load_credentials
@@ -215,7 +218,7 @@ def analyze():
             collection_name=collection_name,
             texts=[text],
             metadatas=[doc.metadata],
-            force_recreate=data.get("force_recreate", False),
+            # force_recreate=data.get("force_recreate", False),
         )
         logger.info(f"Successfully stored document in collection: {collection_name}")
 
@@ -340,13 +343,15 @@ def process_text():
                     f"Invalid chunking configuration provided: {e}. Using defaults."
                 )
 
-        # Process text with all configurations
-        result = text_processor.process_text(
-            text=text,
-            collection_name=collection_name,
-            metadata=data.get("metadata"),
-            skip_if_exists=data.get("skip_if_exists", False),
-            chunking_config=chunking_config,
+        # Run the coroutine in the event loop
+        result = asyncio.run(
+            text_processor.process_text(
+                text=text,
+                collection_name=collection_name,
+                metadata=data.get("metadata"),
+                skip_if_exists=data.get("skip_if_exists", False),
+                chunking_config=chunking_config,
+            )
         )
 
         return jsonify(result), 200
@@ -443,4 +448,9 @@ if __name__ == "__main__":
     ):
         logger.error("Required components not initialized. Exiting.")
         sys.exit(1)
-    app.run(host="0.0.0.0", port=8713)
+    from hypercorn.asyncio import serve
+    from hypercorn.config import Config
+
+    config = Config()
+    config.bind = ["0.0.0.0:8713"]
+    asyncio.run(serve(app, config))
