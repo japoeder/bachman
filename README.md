@@ -1,4 +1,4 @@
-![Bachman Banner](https://raw.githubusercontent.com/japoeder/bachman/main/bachman/_img/bachman_banner.jpg)
+![Bachman Banner](https://raw.githubusercontent.com/japoeder/bachman/main/bachman/_img/bachman_banner.png)
 
 # Bachman 🚀
 
@@ -24,10 +24,15 @@ A robust financial document processing service for sentiment analysis, content e
   - [📖 API Usage](#-api-usage)
     - [Authentication](#authentication)
     - [Endpoints](#endpoints)
+      - [1. Process Text](#1-process-text)
+      - [2. Process File](#2-process-file)
+      - [3. Analyze Text](#3-analyze-text)
+      - [4. Get Sentiment](#4-get-sentiment)
+      - [5. Search](#5-search)
+      - [6. Delete](#6-delete)
   - [📁 Project Structure](#-project-structure)
   - [🔧 Development](#-development)
     - [Service Management](#service-management)
-    - [Code Quality](#code-quality)
 
 ## 🔍 Overview
 
