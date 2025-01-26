@@ -31,15 +31,20 @@ import sys
 import json
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Union
+import traceback
+import asyncio
 
 # Third-party imports
 from langchain.schema import Document
-from qdrant_client import QdrantClient, models
+from qdrant_client import QdrantClient
+from qdrant_client.http import models
 from tqdm import tqdm
 import requests
 from pydantic import BaseModel
+
+# import urllib.parse
 
 # Local application imports
 sys.path.append(
@@ -59,8 +64,17 @@ class CollectionDescription(BaseModel):
 class CollectionResponse(BaseModel):
     """Model for collection response."""
 
-    collections: List[CollectionDescription]
-    status: str = "ok"
+    result: Dict[
+        str, List[Dict[str, str]]
+    ]  # {"collections": [{"name": "test_collection"}]}
+    status: str
+    time: float
+
+
+class CollectionInfo(BaseModel):
+    """Model for collection information."""
+
+    name: str
 
 
 class VectorStore:
@@ -89,64 +103,70 @@ class VectorStore:
         )
     """
 
-    def __init__(self, host: str, port: int, embedding_function=None):
+    def __init__(self, host: str, port: int, embedding_function: Any = None):
         """Initialize VectorStore with Qdrant client."""
         self.host = host
         self.port = port
+        base_url = f"http://{host}:{port}"
         self.client = QdrantClient(
-            host=host,
-            port=8716,  # Change to use the API port instead of direct Qdrant port
+            url=base_url,
+            timeout=60.0,
+            prefer_grpc=False,
             check_compatibility=False,
         )
         self.embedding_function = embedding_function
+
+        try:
+            collections_url = f"http://{host}:8714/collections"
+            logger.debug(f"Attempting to fetch collections from: {collections_url}")
+
+            response = requests.get(collections_url, timeout=10)
+            response.raise_for_status()
+
+            data = response.json()
+            logger.debug(f"Received response: {data}")
+
+            if isinstance(data, dict) and "result" in data:
+                collections = data["result"]["collections"]
+                collection_names = [coll["name"] for coll in collections]
+                logger.info(f"Found collections via HTTP: {collection_names}")
+            else:
+                logger.warning(f"Unexpected response format: {data}")
+
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"HTTP request failed: {e}")
+        except ValueError as e:
+            logger.warning(f"JSON parsing failed: {e}")
+        except Exception as e:
+            logger.warning(f"Could not fetch collections during init: {str(e)}")
+            logger.debug("Exception details:", exc_info=True)
+
         logger.info(f"Initialized Qdrant client for {host}:{port}")
 
+    async def ensure_collection(self, collection_name: str) -> None:
+        """Ensure collection exists using HTTP API."""
         try:
-            collections = self.client.get_collections()
-            if collections is None:
-                logger.warning("No collections found, but connection successful")
-            else:
-                logger.info(
-                    f"Found {len(collections.collections)} existing collections"
-                )
-        except Exception as e:
-            logger.warning(f"Could not fetch collections, but continuing: {str(e)}")
-
-    def ensure_collection(self, collection_name: str, force_recreate: bool = False):
-        """Ensure collection exists with correct dimensions."""
-        try:
-            # Check current collection
+            # Check if collection exists
             response = requests.get(
                 f"http://{self.host}:{self.port}/collections/{collection_name}",
-                timeout=10,  # Add 10 second timeout
+                timeout=10,
             )
 
-            if response.status_code == 200:
-                if force_recreate:
-                    logger.info(f"Force recreating collection {collection_name}")
-                    self.delete_collection(collection_name)
-                else:
-                    logger.info(f"Collection {collection_name} exists")
-                    return
+            if response.status_code != 200:
+                # Create collection if it doesn't exist
+                create_response = requests.post(
+                    f"http://{self.host}:{self.port}/collections/{collection_name}",
+                    json={"vectors": {"size": 1024, "distance": "Cosine"}},
+                    timeout=10,
+                )
+                if create_response.status_code != 200:
+                    raise Exception(
+                        f"Failed to create collection: {create_response.text}"
+                    )
+                logger.info(f"Created collection: {collection_name}")
 
-            # Create collection with correct dimensions
-            response = requests.post(
-                f"http://{self.host}:{self.port}/collections/{collection_name}",
-                json={"size": 1024, "distance": "Cosine"},
-                timeout=10,  # Add 10 second timeout
-            )
-            if response.status_code == 200:
-                logger.info(f"Successfully created collection: {collection_name}")
-            else:
-                raise Exception(f"Failed to create collection: {response.text}")
-
-        except requests.Timeout:
-            logger.error(
-                f"Timeout while connecting to Qdrant at {self.host}:{self.port}"
-            )
-            raise
         except Exception as e:
-            logger.error(f"Failed to initialize collection {collection_name}: {str(e)}")
+            logger.error(f"Error ensuring collection exists: {str(e)}")
             raise
 
     def get_collection(self, collection_name: str):
@@ -381,73 +401,99 @@ class VectorStore:
             logger.error(f"Error retrieving documents by metadata: {str(e)}")
             raise
 
-    def store_vectors(
+    async def get_embeddings(self, text: str) -> List[float]:
+        """Get embeddings for text."""
+        if self.embedding_function is None:
+            raise ValueError("Embedding function not initialized")
+        # Don't await the result since embed_query already returns the vector
+        return self.embedding_function.embed_query(text)
+
+    async def text_exists(self, collection_name: str, doc_id: str) -> bool:
+        """Check if a document with given doc_id exists in collection."""
+        try:
+            print(
+                f"\n=== Checking for doc_id: {doc_id} in collection: {collection_name} ==="
+            )
+
+            # Ensure collection exists first
+            if not await self.ensure_collection_exists(collection_name):
+                print("Collection check/creation failed")
+                return False
+
+            print("\nSearching for existing document...")
+            matching_docs = await self.search_by_doc_id(collection_name, doc_id)
+
+            if matching_docs:
+                # Create a clean version of the docs without vectors for printing
+                clean_docs = [
+                    {"id": doc["id"], "payload": doc["payload"]}
+                    for doc in matching_docs
+                ]
+                print("\nFound existing document(s):")
+                print(json.dumps(clean_docs, indent=2))
+                return True
+
+            print(f"\nNo existing documents found with doc_id: {doc_id}")
+            return False
+
+        except Exception as e:
+            print(f"Error checking text existence: {str(e)}")
+            return False
+
+    async def store_vectors(
         self,
         collection_name: str,
-        texts: Union[str, list],
-        metadatas: list = None,
-        force_recreate: bool = False,
-    ):
-        """Store vectors in the specified collection."""
+        texts: List[str],
+        metadatas: Optional[List[Dict[str, Any]]] = None,
+        skip_if_exists: bool = False,
+    ) -> Dict[str, Any]:
+        """Store vectors with complete metadata."""
         try:
-            # Convert single text to list if necessary
-            if isinstance(texts, str):
-                texts = [texts]
-                if metadatas:
-                    metadatas = [metadatas]
+            if skip_if_exists and metadatas and metadatas[0].get("doc_id"):
+                doc_id = metadatas[0]["doc_id"]
+                exists = await self.text_exists(collection_name, doc_id)
+                if exists:
+                    return {
+                        "status": "skipped",
+                        "reason": "document already exists",
+                        "doc_id": doc_id,
+                    }
 
-            # Ensure collection exists with optional recreation
-            self.ensure_collection(collection_name, force_recreate=force_recreate)
+            vector = await self.get_embeddings(texts[0])
+            point_id = str(uuid.uuid4())
 
-            # Generate embeddings
-            vectors = [self.embedding_function.embed_query(text) for text in texts]
+            payload = {
+                "text": texts[0],
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                **(metadatas[0] if metadatas else {}),
+            }
 
-            # Prepare points for insertion using models.PointStruct format
-            points = []
-            for i, (vector, text) in enumerate(zip(vectors, texts)):
-                point = {
-                    "id": str(uuid.uuid4()),
-                    "vector": list(vector),  # Convert numpy array to list
-                    "payload": {
-                        "text": text,
-                        "ticker": metadatas[i].get("ticker")
-                        if metadatas and metadatas[i]
-                        else None,
-                        "timestamp": datetime.now().isoformat(),
-                    },
-                }
-                points.append(point)
+            point_data = {
+                "points": [{"id": point_id, "vector": vector, "payload": payload}]
+            }
 
-                # Log the payload (excluding the vector for readability)
-                log_point = point.copy()
-                log_point["vector"] = f"<vector with {len(vector)} dimensions>"
-                logger.info(f"Storing point: {json.dumps(log_point, indent=2)}")
-
-            # Use the server's HTTP API directly
+            # Use the upsert endpoint
             response = requests.post(
-                f"http://{self.host}:{self.port}/collections/{collection_name}/points",
-                json={"points": points},
-                timeout=30,  # Add 30 second timeout for vector storage
+                f"http://{self.host}:8716/collections/{collection_name}/points",
+                json=point_data,
+                timeout=10,
             )
 
-            if response.status_code == 200:
-                logger.info(
-                    f"Successfully stored {len(texts)} vectors in collection {collection_name}"
-                )
-                return response.json()
-            else:
-                logger.error(
-                    f"Failed to store vectors. Status: {response.status_code}, Response: {response.text}"
-                )
-                raise Exception(f"Failed to store vectors: {response.text}")
+            if response.status_code != 200:
+                raise Exception(f"Failed to store vector: {response.text}")
 
-        except requests.Timeout:
-            logger.error(
-                f"Timeout while storing vectors in Qdrant at {self.host}:{self.port}"
-            )
-            raise
+            result = {"id": point_id, "payload": payload}  # Removed vector from result
+
+            print("\nSuccessfully created new document:")
+            print(json.dumps(result, indent=2))
+
+            return {
+                **result,
+                "vector": vector,
+            }  # Include vector in return but not in print
+
         except Exception as e:
-            logger.error(f"Error storing vectors: {str(e)}")
+            print(f"Error storing vectors: {str(e)}")
             raise
 
     def delete_collection(self, collection_name: str):
@@ -496,3 +542,153 @@ class VectorStore:
         except Exception as e:
             logger.warning(f"Could not fetch collections, but continuing: {str(e)}")
             return None
+
+    async def ensure_collection_exists(self, collection_name: str) -> bool:
+        """Ensure collection exists, create if it doesn't."""
+        try:
+            # Check if collection exists
+            collections_response = requests.get(
+                f"http://{self.host}:8716/collections", timeout=10
+            )
+            if collections_response.status_code == 200:
+                collections_data = collections_response.json()
+                print("\nCollections response:", json.dumps(collections_data, indent=2))
+
+                # Parse the collections string looking for the collection name
+                collections_str = str(collections_data)
+                exists = f"name='{collection_name}'" in collections_str
+
+                if not exists:
+                    print(f"\nCreating collection: {collection_name}")
+                    create_response = requests.post(
+                        f"http://{self.host}:8716/collections/{collection_name}",
+                        json={"size": 1024},
+                        timeout=10,
+                    )
+
+                    if create_response.status_code == 200:
+                        print(f"Successfully created collection {collection_name}")
+                        # Wait a moment for the collection to be ready
+                        await asyncio.sleep(1)
+                        return True
+                    else:
+                        print(
+                            f"Failed to create collection: {create_response.status_code}"
+                        )
+                        print(f"Response: {create_response.text}")
+                        return False
+
+                print(f"Collection {collection_name} already exists")
+                return True
+
+            print(f"Failed to get collections: {collections_response.status_code}")
+            return False
+
+        except Exception as e:
+            print(f"Error ensuring collection exists: {str(e)}")
+            print(f"Exception type: {type(e)}")
+            print(f"Full exception details: {traceback.format_exc()}")
+            return False
+
+    async def store_text(
+        self, collection_name: str, text: str, metadata: dict = None
+    ) -> dict:
+        """Store text in vector database."""
+        try:
+            # Ensure collection exists
+            if not await self.ensure_collection_exists(collection_name):
+                raise Exception(f"Failed to create collection: {collection_name}")
+
+            # Get embeddings
+            vector = await self.get_embeddings(text)
+            point_id = str(uuid.uuid4())
+
+            # Prepare payload
+            payload = {
+                "text": text,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            if metadata:
+                payload.update(metadata)
+
+            # Create point
+            point = {"id": point_id, "vector": vector, "payload": payload}
+
+            # Store the point
+            response = await self.client.upsert(
+                collection_name=collection_name, points=[point]
+            )
+
+            # Wait for storage operation to complete and verify
+            if response.status_code == 200:
+                # Wait a moment for consistency
+                await asyncio.sleep(1)
+
+                # Verify storage
+                search_response = await self.client.scroll(
+                    collection_name=collection_name,
+                    scroll_filter=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="doc_id",
+                                match=models.MatchValue(value=metadata.get("doc_id")),
+                            )
+                        ]
+                    ),
+                    limit=1,
+                )
+
+                if search_response and search_response.points:
+                    stored_point = search_response.points[0]
+                    print("\nDocument stored and verified:")
+                    print(f"ID: {stored_point.id}")
+                    print(f"Doc ID: {stored_point.payload.get('doc_id')}")
+                    print(f"Text: {stored_point.payload.get('text')[:100]}...")
+                    return {
+                        "id": point_id,
+                        "vector": vector,
+                        "payload": stored_point.payload,
+                    }
+                else:
+                    raise Exception("Document storage could not be verified")
+
+            raise Exception(f"Storage failed with status code: {response.status_code}")
+
+        except Exception as e:
+            print(f"\nError storing vectors: {str(e)}")
+            print(f"Exception type: {type(e)}")
+            print(f"Full exception details: {traceback.format_exc()}")
+            raise
+
+    async def search_by_doc_id(self, collection_name: str, doc_id: str) -> list:
+        """Search for documents by doc_id."""
+        try:
+            response = requests.post(
+                f"http://{self.host}:8716/collections/{collection_name}/search",
+                json={
+                    "query_vector": [0] * 1024,
+                    "filter": {
+                        "must": [
+                            {"key": "doc_id", "match": {"value": doc_id, "exact": True}}
+                        ]
+                    },
+                    "limit": 100,
+                },
+                timeout=10,
+            )
+
+            if response.status_code == 200:
+                results = response.json()
+                matching_docs = [
+                    doc
+                    for doc in results
+                    if doc.get("payload", {}).get("doc_id") == doc_id
+                ]
+                if matching_docs:
+                    return matching_docs
+
+            return []
+
+        except Exception as e:
+            print(f"Error searching: {str(e)}")
+            return []
