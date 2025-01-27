@@ -11,7 +11,8 @@ from flask import Flask, request, jsonify
 from langchain.schema import Document
 
 from bachman.processors.chunking import ChunkingConfig
-from bachman.processors.document_types import DocumentType
+
+# from bachman.processors.document_types import DocumentType
 from bachman.api.middleware import requires_api_key
 from bachman.core.components import Components
 from bachman.utils.format_results import format_analysis_results
@@ -151,33 +152,43 @@ def create_app():
     @app.route("/bachman/process_file", methods=["POST"])
     @requires_api_key
     def process_file():
-        """File processing endpoint with flexible options."""
+        """Process a file and store its contents."""
         try:
-            data = request.json
-            if not data:
-                return jsonify({"error": "No data provided"}), 400
+            data = request.get_json()
 
-            # Required fields
+            # Extract required parameters
             file_path = data.get("file_path")
             collection_name = data.get("collection_name")
+            doc_type = data.get("doc_type")
+            process_sentiment = data.get("process_sentiment", False)
+            metadata = data.get("metadata", {})
 
-            # Optional fields with defaults
-            document_type = DocumentType(data.get("document_type", "generic"))
-            process_sentiment = data.get("process_sentiment", True)
+            if not file_path or not collection_name:
+                return (
+                    jsonify(
+                        {
+                            "error": "Missing required parameters: file_path and collection_name"
+                        }
+                    ),
+                    400,
+                )
 
-            result = Components.file_processor.process_file(
-                file_path=file_path,
-                collection_name=collection_name,
-                document_type=document_type,
-                process_sentiment=process_sentiment,
-                chunking_config=data.get("chunking_config"),
-                metadata=data.get("metadata"),
+            # Process file using asyncio.run() like the process_text endpoint
+            result = asyncio.run(
+                Components.file_processor.process_file(
+                    file_path=file_path,
+                    collection_name=collection_name,
+                    doc_type=doc_type,
+                    process_sentiment=process_sentiment,
+                    metadata=metadata,
+                )
             )
 
             return jsonify(result), 200
 
         except Exception as e:
             logger.error(f"Error processing request: {str(e)}")
+            logger.exception("Full traceback:")
             return jsonify({"error": str(e)}), 500
 
     @app.route("/bachman/get_sentiment", methods=["POST"])
@@ -257,7 +268,7 @@ def create_app():
                             "doc_id": metadata.get("doc_id"),
                             "ticker": metadata.get("ticker"),
                             "source": metadata.get("source"),
-                            "report_type": metadata.get("report_type"),
+                            "doc_type": metadata.get("doc_type"),
                             "timestamp": metadata.get("timestamp"),
                         },
                         "chunks": metadata.get("chunks", []),
@@ -382,6 +393,17 @@ def create_app():
 
         except Exception as e:
             logger.error(f"Error processing delete request: {str(e)}")
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/bachman/status/<task_id>", methods=["GET"])
+    @requires_api_key
+    async def get_task_status(task_id):
+        """Get the status of a document processing task."""
+        try:
+            status = await Components.task_tracker.get_status(task_id)
+            return jsonify(status), 200
+        except Exception as e:
+            logger.error(f"Error retrieving task status: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
     return app

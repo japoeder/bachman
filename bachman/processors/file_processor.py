@@ -1,18 +1,55 @@
 """File processing module for handling different document types."""
 
-import os
 import logging
 from typing import Optional, Dict, List
+import uuid
+from datetime import datetime
 import tabula
 import pymupdf
+import PyPDF2
 
 # from langchain.document_loaders import PyPDFLoader, TextLoader
-from bachman.processors.chunking import ChunkingConfig
+# from bachman.processors.chunking import ChunkingConfig
 
 # from bachman.processors.types import ChunkInfo, HashInfo, ProcessingResult
 from bachman.processors.document_types import DocumentType
+from bachman.core.interfaces import TaskTracker
+from bachman.processors.vectorstore import VectorStore
 
 logger = logging.getLogger(__name__)
+
+
+class ProcessingStatus:
+    """Status tracking for document processing."""
+
+    def __init__(self, doc_id: str):
+        self.doc_id = doc_id
+        self.status = "pending"
+        self.components = {
+            "text": {"status": "pending", "pages": []},
+            "tables": {"status": "pending", "pages": []},
+            "metadata": {"status": "pending"},
+        }
+        self.errors = []
+        self.last_updated = datetime.utcnow().isoformat()
+
+    def to_dict(self) -> Dict:
+        """Convert status to dictionary for storage."""
+        return {
+            "doc_id": self.doc_id,
+            "status": self.status,
+            "components": self.components,
+            "errors": self.errors,
+            "last_updated": self.last_updated,
+        }
+
+    def update(self, component: str, status: str, error: Optional[str] = None):
+        """Update component status."""
+        if component in self.components:
+            self.components[component]["status"] = status
+        if error:
+            self.errors.append(error)
+        self.last_updated = datetime.utcnow().isoformat()
 
 
 class FileProcessor:
@@ -23,96 +60,148 @@ class FileProcessor:
     Provides tracking of processed documents and their chunks.
     """
 
-    def __init__(self, text_processor):
-        """Initialize with text processor dependency."""
+    def __init__(
+        self, text_processor, task_tracker: TaskTracker, vector_store: VectorStore
+    ):
+        """Initialize with required dependencies."""
         self.text_processor = text_processor
+        self.task_tracker = task_tracker
+        self.vector_store = vector_store
+
+    def read_pdf(self, file_path: str) -> tuple[str, int]:
+        """Read text content from a PDF file and return text and word count."""
+        try:
+            with open(file_path, "rb") as file:
+                pdf_reader = PyPDF2.PdfReader(file)
+                text = ""
+                for page in pdf_reader.pages:
+                    text += page.extract_text() + "\n"
+                word_count = len(text.split())
+                return text, word_count
+        except Exception as e:
+            logger.error(f"Error reading PDF file: {str(e)}")
+            raise
 
     async def process_file(
         self,
         file_path: str,
         collection_name: str,
-        document_type: DocumentType = DocumentType.GENERIC,
-        process_sentiment: bool = True,
-        skip_if_exists: bool = False,
-        chunking_config: Optional[ChunkingConfig] = None,
-        metadata: Optional[dict] = None,
-    ) -> dict:
-        """Process file based on file type and apply document-specific processing."""
+        doc_type: str,
+        process_sentiment: bool = False,
+        metadata: Optional[Dict] = None,
+    ) -> Dict:
+        """Process a file and store its contents."""
         try:
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(f"File not found: {file_path}")
+            # Generate document ID
+            doc_id = str(uuid.uuid4())
 
-            # Get file extension and choose appropriate processor
-            file_ext = os.path.splitext(file_path)[1].lower()
-            if file_ext == ".pdf":
-                result = await self._process_pdf(file_path)
-            elif file_ext == ".txt":
-                result = await self._process_text_file(file_path)
-            else:
-                raise ValueError(f"Unsupported file type: {file_ext}")
+            # Initialize processing status
+            status = ProcessingStatus(doc_id)
+            await self.task_tracker.update_status(doc_id, status.to_dict())
 
-            # Apply document-type-specific processing
-            processed_result = self._apply_document_type_processing(
-                result, document_type
-            )
-
-            # Add to vector store with document type metadata
-            storage_result = await self.text_processor.process_text(
-                text=processed_result["processed_text"],
-                collection_name=collection_name,
-                metadata={
-                    **(metadata or {}),
-                    "document_type": document_type.value,
-                    "sections": processed_result.get("sections", {}),
+            # Update metadata
+            if metadata is None:
+                metadata = {}
+            metadata.update(
+                {
+                    "doc_id": doc_id,
+                    "doc_type": doc_type,
                     "file_path": file_path,
-                    "tables": processed_result.get("tables", []),
-                },
-                skip_if_exists=skip_if_exists,
-                chunking_config=chunking_config,
+                    "processed_at": datetime.utcnow().isoformat(),
+                }
             )
+
+            # Ensure collection exists
+            logger.info(f"Ensuring collection {collection_name} exists")
+            await self.vector_store.ensure_collection(collection_name)
+
+            # Read file content
+            try:
+                if file_path.lower().endswith(".pdf"):
+                    text_content, word_count = self.read_pdf(file_path)
+                    metadata["word_count"] = word_count
+                else:
+                    with open(file_path, "r", encoding="utf-8") as file:
+                        text_content = file.read()
+                        metadata["word_count"] = len(text_content.split())
+
+                # Process text content
+                text_result = await self.text_processor.process_text(
+                    text=text_content,
+                    collection_name=collection_name,
+                    metadata=metadata,
+                )
+                status.update("text", "completed")
+            except Exception as e:
+                logger.error(f"Error processing text: {str(e)}")
+                status.update("text", "failed", str(e))
+                raise
+
+            # Update final status
+            if any(comp["status"] == "failed" for comp in status.components.values()):
+                status.status = "failed"
+            else:
+                status.status = "completed"
+
+            await self.task_tracker.update_status(doc_id, status.to_dict())
 
             return {
-                "status": "success",
-                "document_type": document_type.value,
-                "processing_result": processed_result,
-                "storage": storage_result,
+                "status": status.status,
+                "doc_id": doc_id,
+                "collection": collection_name,
+                "metadata": metadata,
+                "text_result": text_result,
             }
 
         except Exception as e:
-            logger.error(f"Error processing file {file_path}: {str(e)}")
+            logger.error(f"Error processing file: {str(e)}")
+            if "status" in locals():
+                status.status = "failed"
+                status.errors.append(str(e))
+                await self.task_tracker.update_status(doc_id, status.to_dict())
             raise
 
-    async def _process_pdf(self, file_path: str) -> Dict:
-        """Process PDF document with table extraction."""
-        doc = pymupdf.open(file_path)
-        all_text = []
-        all_tables = []
+    async def _process_text_components(
+        self, file_path: str, status: ProcessingStatus
+    ) -> dict:
+        """Process text components of the file."""
+        try:
+            # Read text content and get word count
+            text_content, word_count = self.read_pdf(file_path)
 
-        for page_num, page in enumerate(doc):
-            # Extract text
-            text = page.get_text()
-            all_text.append(text)
+            status.update("text", "completed")
+            return {"text": text_content, "word_count": word_count}
 
-            # Extract tables
-            tables = self._extract_tables_from_pdf(file_path, page_num)
-            all_tables.extend(tables)
+        except Exception as e:
+            logger.error(f"Error processing text: {str(e)}")
+            status.update("text", "failed", str(e))
+            return {"text": "", "word_count": 0}
 
-        return {
-            "text": "\n\n".join(all_text),
-            "tables": all_tables,
-            "raw_content": all_text,  # Keep raw content for type-specific processing
-        }
+    async def _process_table_components(
+        self, file_path: str, status: ProcessingStatus
+    ) -> dict:
+        """Process table components of the file."""
+        try:
+            # Read PDF document
+            pdf = pymupdf.open(file_path)
+            tables = []
 
-    async def _process_text_file(self, file_path: str) -> Dict:
-        """Process text file."""
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
+            # Process each page
+            for page_num in range(len(pdf)):
+                page_tables = self._extract_tables_from_pdf(file_path, page_num)
+                if page_tables:
+                    tables.extend(page_tables)
+                    status.components["tables"]["pages"].append(
+                        {"page": page_num, "count": len(page_tables)}
+                    )
 
-        return {
-            "text": content,
-            "tables": [],
-            "raw_content": content,
-        }
+            status.update("tables", "completed")
+            return {"tables": tables}
+
+        except Exception as e:
+            logger.error(f"Error processing tables: {str(e)}")
+            status.update("tables", "failed", str(e))
+            return {"tables": []}
 
     def _apply_document_type_processing(
         self, result: Dict, document_type: DocumentType
@@ -193,7 +282,7 @@ class FileProcessor:
         try:
             pdf_tables = tabula.read_pdf(
                 file_path,
-                pages=page_num + 1,
+                pages=page_num + 1,  # tabula uses 1-based page numbers
                 multiple_tables=True,
                 force_subprocess=True,
             )

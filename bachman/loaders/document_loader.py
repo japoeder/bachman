@@ -46,22 +46,22 @@ class DocumentLoader:
             separators=["\n\n", "\n", " ", ""],
         )
 
-    def process_pdf(self, filepath: str, ticker: str, report_type: str) -> None:
+    def process_pdf(self, filepath: str, ticker: str, doc_type: str) -> None:
         """
         Process a PDF file and extract text, tables, and images.
 
         Args:
             filepath: Path to PDF file
             ticker: Stock ticker symbol
-            report_type: Type of report (e.g., 'annual_reports')
+            doc_type: Type of report (e.g., 'annual_reports')
         """
         try:
             # Create output directories
             subdirs = {
-                "images": f"{self.processed_dir}/{ticker}/{report_type}/processed_images",
-                "text": f"{self.processed_dir}/{ticker}/{report_type}/processed_text",
-                "tables": f"{self.processed_dir}/{ticker}/{report_type}/processed_tables",
-                "pages": f"{self.processed_dir}/{ticker}/{report_type}/processed_page_images",
+                "images": f"{self.processed_dir}/{ticker}/{doc_type}/processed_images",
+                "text": f"{self.processed_dir}/{ticker}/{doc_type}/processed_text",
+                "tables": f"{self.processed_dir}/{ticker}/{doc_type}/processed_tables",
+                "pages": f"{self.processed_dir}/{ticker}/{doc_type}/processed_page_images",
             }
 
             for dir_path in subdirs.values():
@@ -134,8 +134,8 @@ class DocumentLoader:
     def load_processed_documents(
         self,
         ticker: str,
-        report_type: str,
-        doc_type: str = "text",
+        doc_type: str,
+        file_type: str = "text",
         batch_size: int = 100,
     ) -> List[Dict[str, Any]]:
         """
@@ -143,15 +143,15 @@ class DocumentLoader:
 
         Args:
             ticker: Stock ticker symbol
-            report_type: Type of report
-            doc_type: Type of document to load ('text' or 'tables')
+            doc_type: Type of document to load ('reddit_posts', 'financial_statements', 'earnings_calls', 'articles')
+            file_type: Type of file to load ('text' or 'tables')
             batch_size: Number of documents to load at once
 
         Returns:
             List of documents with metadata
         """
         try:
-            path = f"{self.processed_dir}/{ticker}/{report_type}/processed_{doc_type}"
+            path = f"{self.processed_dir}/{ticker}/{doc_type}/processed_{file_type}"
             loader = DirectoryLoader(path, glob="*.txt", loader_cls=TextLoader)
 
             # Load documents in batches
@@ -165,7 +165,7 @@ class DocumentLoader:
                         {
                             "ticker": ticker,
                             "doc_type": doc_type,
-                            "report_type": report_type,
+                            "file_type": file_type,
                         }
                     )
 

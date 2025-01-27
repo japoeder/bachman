@@ -53,3 +53,5 @@ sentence_transformers
 langchain-huggingface
 asgiref
 hypercorn
+PyPDF2
+tabula-py
