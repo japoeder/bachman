@@ -7,7 +7,11 @@ is split into chunks for processing, with optimized defaults for different model
 
 from enum import Enum
 from typing import Optional, List
+import logging
+import json
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class ChunkingStrategy(Enum):
@@ -57,3 +61,22 @@ class ChunkingConfig(BaseModel):
         default=100,  # Minimum chunk size to avoid too small segments
         description="Minimum size of each chunk in tokens",
     )
+
+
+def get_chunking_config(config_store: dict, doc_type: str) -> dict:
+    """Get chunking configuration for a specific document type."""
+    if config_store and doc_type in config_store:
+        logger.info(f"Using document-specific chunking config for {doc_type}")
+        logger.debug(f"Config details: {json.dumps(config_store[doc_type], indent=2)}")
+        return config_store[doc_type]
+
+    logger.warning(f"No specific chunking config found for {doc_type}, using default")
+    default_config = {
+        "strategy": "recursive",
+        "chunk_size": 1024,
+        "chunk_overlap": 100,
+        "separators": ["\n\n", "\n", ". ", " ", ""],
+        "min_chunk_size": 50,
+    }
+    logger.debug(f"Default config details: {json.dumps(default_config, indent=2)}")
+    return default_config

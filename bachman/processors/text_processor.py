@@ -5,14 +5,17 @@ Text processing module for handling text content.
 import hashlib
 from typing import Optional, List, Dict
 import logging
-import datetime
+
+# import datetime
+import uuid
+
+# from datetime import UTC
 from langchain.text_splitter import (
     RecursiveCharacterTextSplitter,
     SentenceTransformersTokenTextSplitter,
 )
 from bachman.processors.chunking import ChunkingConfig, ChunkingStrategy
-
-# import uuid
+from bachman.processors.vectorstore import VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +28,37 @@ class TextProcessor:
     with support for chunk tracking and content hashing.
     """
 
-    def __init__(self, vector_store):
+    def __init__(
+        self, vector_store: VectorStore, chunking_config: Optional[dict] = None
+    ):
         self.vector_store = vector_store
+        self.default_chunking_config = chunking_config or {
+            "strategy": "recursive",
+            "chunk_size": 1024,
+            "chunk_overlap": 100,
+            "separators": ["\n\n", "\n", ". ", " ", ""],
+            "min_chunk_size": 50,
+        }
+        self.logger = logging.getLogger(__name__)
 
-    def get_text_splitter(self, config: Optional[ChunkingConfig] = None):
-        """Get appropriate text splitter based on strategy."""
+    def get_text_splitter(
+        self, config: Optional[ChunkingConfig] = None, doc_type: Optional[str] = None
+    ):
+        """Get appropriate text splitter based on strategy and document type."""
         if not config:
-            config = ChunkingConfig(strategy=ChunkingStrategy.RECURSIVE)
+            # If no config provided, try to get from chunking_config based on doc_type
+            if doc_type and self.chunking_config and doc_type in self.chunking_config:
+                cfg = self.chunking_config[doc_type]
+                config = ChunkingConfig(
+                    strategy=cfg.get("strategy", ChunkingStrategy.RECURSIVE),
+                    chunk_size=cfg.get("chunk_size", 4096),
+                    chunk_overlap=cfg.get("chunk_overlap", 200),
+                    separators=cfg.get("separators", ["\n\n", "\n", " ", ""]),
+                    min_chunk_size=cfg.get("min_chunk_size", 100),
+                )
+            else:
+                # Use default config
+                config = ChunkingConfig(strategy=ChunkingStrategy.RECURSIVE)
 
         if config.strategy == ChunkingStrategy.RECURSIVE:
             return RecursiveCharacterTextSplitter(
@@ -43,7 +70,6 @@ class TextProcessor:
             return SentenceTransformersTokenTextSplitter(
                 chunk_size=config.chunk_size, chunk_overlap=config.chunk_overlap
             )
-        # Add other strategies as needed
 
     def _generate_text_hashes(self, text: str, chunks: List[str]) -> Dict:
         """Generate consistent hashes for original text and chunks"""
@@ -63,62 +89,53 @@ class TextProcessor:
         self,
         text: str,
         collection_name: str,
-        metadata: Optional[dict] = None,
+        metadata: dict = None,
         skip_if_exists: bool = False,
-        chunking_config: Optional[ChunkingConfig] = None,
-    ) -> dict:
-        """Process and store text."""
+        chunking_config: dict = None,
+    ):
+        """Process text with specified chunking configuration."""
         try:
-            # Check if text exists before processing
-            if skip_if_exists:
-                exists = await self.vector_store.text_exists(
-                    collection_name, metadata.get("doc_id")
-                )
-                if exists:
-                    return {"status": "skipped", "reason": "document already exists"}
+            # Use provided config or fall back to default
+            config = chunking_config or self.default_chunking_config
+            self.logger.info(f"Processing text with chunking config: {config}")
 
-            # Get text splitter and split text
-            text_splitter = self.get_text_splitter(chunking_config)
-            texts = text_splitter.split_text(text)
-
-            # Prepare metadata for each chunk
-            if metadata:
-                metadatas = [metadata.copy() for _ in texts]
-                # Add chunk information to metadata
-                for i, meta in enumerate(metadatas):
-                    meta.update({"chunk_index": i, "total_chunks": len(texts)})
-            else:
-                metadatas = None
-
-            # Generate hashes
-            hash_info = self._generate_text_hashes(text, texts)
-
-            # Add hash info to metadata
-            if metadata is None:
-                metadata = {}
-            metadata.update(hash_info)
-
-            # Update timestamp format and ensure metadata is used
-            metadata = {
-                "text": text,
-                "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
-                **(metadata or {}),
-            }
-
-            # Store text chunks in vector store
-            result = await self.vector_store.store_vectors(
-                collection_name=collection_name,
-                texts=[text],
-                metadatas=[metadata],
-                skip_if_exists=skip_if_exists,
+            # Create text splitter based on config
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=config["chunk_size"],
+                chunk_overlap=config["chunk_overlap"],
+                separators=config["separators"],
+                length_function=len,
             )
 
+            # Split text into chunks
+            chunks = text_splitter.split_text(text)
+            self.logger.info(f"Split text into {len(chunks)} chunks")
+
+            # Generate embeddings and store in vector store
+            doc_id = str(uuid.uuid4())
+            for i, chunk in enumerate(chunks):
+                chunk_metadata = {
+                    "parent_id": doc_id,
+                    "chunk_index": i,
+                    "total_chunks": len(chunks),
+                    **(metadata or {}),
+                }
+
+                # Store chunk with metadata
+                await self.vector_store.add_texts(
+                    texts=[chunk],
+                    metadatas=[chunk_metadata],
+                    ids=[f"{doc_id}_chunk_{i}"],
+                )
+
+            self.logger.info(f"Successfully processed text with ID {doc_id}")
             return {
                 "status": "success",
-                "storage": result,
-                "chunks_processed": len(texts),
-                "hash_info": hash_info,
+                "doc_id": doc_id,
+                "num_chunks": len(chunks),
+                "chunking_config": config,
             }
+
         except Exception as e:
-            logger.error(f"Error in process_text: {str(e)}")
+            self.logger.error(f"Error processing text: {str(e)}")
             raise

@@ -5,10 +5,15 @@ This module defines the endpoints for the Bachman API.
 import logging
 import asyncio
 import json
-import uuid
+
+# import uuid
+from datetime import datetime
 import requests
+
+# import os
 from flask import Flask, request, jsonify
-from langchain.schema import Document
+
+# from langchain.schema import Document
 
 from bachman.processors.chunking import ChunkingConfig
 
@@ -16,6 +21,7 @@ from bachman.processors.chunking import ChunkingConfig
 from bachman.api.middleware import requires_api_key
 from bachman.core.components import Components
 from bachman.utils.format_results import format_analysis_results
+from bachman.config.prompt_config import prompt_config
 
 logger = logging.getLogger(__name__)
 
@@ -27,69 +33,117 @@ def create_app():
     @app.route("/bachman/analyze", methods=["POST"])
     @requires_api_key
     def analyze():
-        """Text analysis endpoint."""
+        """Text analysis endpoint using RAG with Groq LLM for financial documents."""
         try:
             data = request.json
             if not data:
                 return jsonify({"error": "No data provided"}), 400
 
-            # Extract and validate collection name
+            # Extract required parameters
             collection_name = data.get("collection_name")
-            if not collection_name:
-                return jsonify({"error": "collection_name is required"}), 400
+            qdrant_id = data.get("id")
+
+            if not collection_name or not qdrant_id:
+                return jsonify({"error": "collection_name and id are required"}), 400
 
             logger.info(
-                f"Processing analysis request for ticker: {data.get('ticker', 'UNKNOWN')} in collection: {collection_name}"
+                f"Analyzing document with Qdrant ID {qdrant_id} from collection {collection_name}"
             )
 
-            # Get text from request
-            text = data.get("text")
-            if not text:
-                return jsonify({"error": "No text provided"}), 400
+            if not Components.vector_store:
+                return jsonify({"error": "Vector store not initialized"}), 500
 
-            # Ensure collection exists before processing
-            Components.vector_store.ensure_collection(collection_name)
+            try:
+                # First, get the main document metadata using scroll
+                main_doc_response = Components.vector_store.client.scroll(
+                    collection_name=collection_name,
+                    scroll_filter={
+                        "must": [{"key": "id", "match": {"value": qdrant_id}}]
+                    },
+                    with_payload=True,
+                    limit=1,
+                )
 
-            # Create document
-            doc = Document(
-                page_content=text,
-                metadata={
-                    "ticker": data.get("ticker", "UNKNOWN"),
-                    "type": data.get("analysis_type", "sentiment"),
-                    "source": data.get("load_type", "live"),
-                    "id": data.get("metadata", {}).get("doc_id", str(uuid.uuid4())),
-                },
-            )
+                if not main_doc_response[0]:
+                    return (
+                        jsonify(
+                            {
+                                "error": f"Document not found in collection {collection_name}"
+                            }
+                        ),
+                        404,
+                    )
 
-            # Analyze sentiment first
-            sentiment_result = Components.sentiment_analyzer.analyze_text([doc])
+                document = main_doc_response[0][0].payload
+                doc_type = document.get("doc_type")
 
-            # Format results using the utility function
-            format_analysis_results(
-                analysis_type=doc.metadata["type"],
-                result=sentiment_result,
-                metadata=doc.metadata,
-            )
+                # Get all related chunks using parent_id
+                chunks_response = Components.vector_store.client.scroll(
+                    collection_name=collection_name,
+                    scroll_filter={
+                        "must": [{"key": "parent_id", "match": {"value": qdrant_id}}]
+                    },
+                    with_payload=True,
+                    limit=100,  # Adjust based on your needs
+                )
 
-            # Store document with metadata in the specified collection
-            storage_result = Components.vector_store.store_vectors(
-                collection_name=collection_name,
-                texts=[text],
-                metadatas=[doc.metadata],
-            )
-            logger.info(
-                f"Successfully stored document in collection: {collection_name}"
-            )
+                # Combine relevant sections for analysis
+                chunks_text = []
+                for chunk in chunks_response[0]:
+                    chunks_text.append(chunk.payload.get("text", ""))
 
-            return (
-                jsonify(
-                    {"sentiment_analysis": sentiment_result, "storage": storage_result}
-                ),
-                200,
-            )
+                # Create financial report analysis prompt
+                analysis_prompt = prompt_config(
+                    doc_type=doc_type or "financial_report",
+                    ticker=document.get("ticker", "Unknown"),
+                    chunks_text=" ".join(chunks_text[:5]),
+                )
+
+                # Get analysis from Groq
+                analysis_result = Components.sentiment_analyzer.llm(analysis_prompt)
+
+                # Parse the JSON response
+                try:
+                    parsed_result = json.loads(analysis_result)
+                except json.JSONDecodeError:
+                    logger.error("Failed to parse LLM response as JSON")
+                    parsed_result = {
+                        "dominant_sentiment": "UNKNOWN",
+                        "confidence_level": "0",
+                        "time_horizon": "UNKNOWN",
+                        "trading_signal": "UNKNOWN",
+                        "key_themes": ["Failed to parse analysis"],
+                    }
+
+                # Structure the response
+                response = {
+                    "analysis": parsed_result,
+                    "metadata": {
+                        "doc_id": qdrant_id,
+                        "collection": collection_name,
+                        "doc_type": doc_type,
+                        "ticker": document.get("ticker"),
+                        "type": "sentiment",
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "chunks_analyzed": len(chunks_text),
+                    },
+                }
+
+                # Format the results for logging
+                format_analysis_results(
+                    analysis_type="sentiment",
+                    result=parsed_result,
+                    metadata=response["metadata"],
+                )
+
+                return jsonify(response), 200
+
+            except Exception as e:
+                logger.error(f"Error performing analysis: {str(e)}")
+                return jsonify({"error": f"Error performing analysis: {str(e)}"}), 500
 
         except Exception as e:
-            logger.error(f"Error processing request: {str(e)}")
+            logger.error(f"Error processing analysis request: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
     @app.route("/bachman/process_text", methods=["POST"])
@@ -160,23 +214,27 @@ def create_app():
             file_path = data.get("file_path")
             collection_name = data.get("collection_name")
             metadata = data.get("metadata", {})
+            temp_dir = data.get("temp_dir")
+            cleanup = data.get("cleanup", True)  # Default to True for cleanup
 
             if not file_path or not collection_name:
-                return (
-                    jsonify(
-                        {
-                            "error": "Missing required parameters: file_path and collection_name"
-                        }
-                    ),
-                    400,
-                )
+                return jsonify({"error": "Missing required parameters"}), 400
 
-            # Process file using asyncio.run() like the process_text endpoint
+            # Get doc_type specific chunking config
+            doc_type = metadata.get("doc_type", "default")
+            chunking_config = Components.get_chunking_config(doc_type)
+            logger.info(
+                f"Using chunking config for doc_type '{doc_type}': {chunking_config}"
+            )
+
             result = asyncio.run(
                 Components.file_processor.process_file(
                     file_path=file_path,
                     collection_name=collection_name,
                     metadata=metadata,
+                    chunking_config=chunking_config,
+                    temp_dir=temp_dir,
+                    cleanup=cleanup,  # Pass cleanup preference
                 )
             )
 

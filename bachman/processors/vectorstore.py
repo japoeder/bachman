@@ -32,17 +32,25 @@ import json
 import uuid
 import logging
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional, Union
-import traceback
-import asyncio
+from typing import List, Dict, Any, Optional  # , Union
+
+# import traceback
+# import asyncio
+import psutil
+import torch
 
 # Third-party imports
 from langchain.schema import Document
-from qdrant_client import QdrantClient
+from qdrant_client import QdrantClient  # , AsyncQdrantClient
 from qdrant_client.http import models
-from tqdm import tqdm
+
+# from qdrant_client.models import Distance, VectorParams, CollectionStatus
+
+# from tqdm import tqdm
 import requests
 from pydantic import BaseModel
+from langchain_qdrant import QdrantVectorStore
+from tqdm.auto import tqdm
 
 # import urllib.parse
 
@@ -103,140 +111,141 @@ class VectorStore:
         )
     """
 
-    def __init__(self, host: str, port: int, embedding_function: Any = None):
-        """Initialize VectorStore with Qdrant client."""
+    # BGE embedding model output dimension
+    VECTOR_SIZE = 1024
+
+    def __init__(
+        self, host: str, port: int, embedding_function, collection_name: str = None
+    ):
+        logger.info(
+            f"Initializing VectorStore with host={host}, port={port}, collection_name={collection_name}"
+        )
         self.host = host
         self.port = port
-        base_url = f"http://{host}:{port}"
-        self.client = QdrantClient(
-            url=base_url,
-            timeout=60.0,
-            prefer_grpc=False,
-            check_compatibility=False,
-        )
         self.embedding_function = embedding_function
+        self.collection_name = collection_name
 
+        # Log embedding model device
+        if hasattr(self.embedding_function, "model"):
+            device = next(self.embedding_function.model.parameters()).device
+            logger.info(f"Embedding model is on device: {device}")
+
+        self.client = QdrantClient(url=f"http://{host}:8714", timeout=60.0)
+        logger.info("Successfully initialized Qdrant client")
+        self.vectorstore = None
+
+    def _create_collection(self, collection_name: str) -> bool:
+        """Create a new collection using direct Qdrant client."""
         try:
-            collections_url = f"http://{host}:8714/collections"
-            logger.debug(f"Attempting to fetch collections from: {collections_url}")
-
-            response = requests.get(collections_url, timeout=10)
-            response.raise_for_status()
-
-            data = response.json()
-            logger.debug(f"Received response: {data}")
-
-            if isinstance(data, dict) and "result" in data:
-                collections = data["result"]["collections"]
-                collection_names = [coll["name"] for coll in collections]
-                logger.info(f"Found collections via HTTP: {collection_names}")
-            else:
-                logger.warning(f"Unexpected response format: {data}")
-
-        except requests.exceptions.RequestException as e:
-            logger.warning(f"HTTP request failed: {e}")
-        except ValueError as e:
-            logger.warning(f"JSON parsing failed: {e}")
-        except Exception as e:
-            logger.warning(f"Could not fetch collections during init: {str(e)}")
-            logger.debug("Exception details:", exc_info=True)
-
-        logger.info(f"Initialized Qdrant client for {host}:{port}")
-
-    async def ensure_collection(self, collection_name: str) -> None:
-        """Ensure collection exists using HTTP API."""
-        try:
-            # Check if collection exists
-            response = requests.get(
-                f"http://{self.host}:{self.port}/collections/{collection_name}",
-                timeout=10,
+            logger.info(
+                f"Creating collection: {collection_name} with vector size {self.VECTOR_SIZE}"
             )
-
-            if response.status_code != 200:
-                # Create collection if it doesn't exist
-                create_response = requests.post(
-                    f"http://{self.host}:{self.port}/collections/{collection_name}",
-                    json={"vectors": {"size": 1024, "distance": "Cosine"}},
-                    timeout=10,
-                )
-                if create_response.status_code != 200:
-                    raise Exception(
-                        f"Failed to create collection: {create_response.text}"
-                    )
-                logger.info(f"Created collection: {collection_name}")
-
+            self.client.create_collection(
+                collection_name=collection_name,
+                vectors_config=models.VectorParams(
+                    size=self.VECTOR_SIZE, distance=models.Distance.COSINE
+                ),
+            )
+            logger.info(f"Successfully created collection: {collection_name}")
+            return True
         except Exception as e:
-            logger.error(f"Error ensuring collection exists: {str(e)}")
+            if "already exists" in str(e):
+                logger.info(f"Collection {collection_name} already exists")
+                return True
+            logger.error(f"Failed to create collection: {str(e)}")
             raise
 
-    def get_collection(self, collection_name: str):
-        """Get collection, creating it if it doesn't exist."""
-        self.ensure_collection(collection_name)
-        # Verify collection exists after creation
-        response = self.client.get_collection(collection_name=collection_name)
-        if response is None:
-            raise ValueError(f"Failed to verify collection {collection_name} exists")
-        return collection_name
-
-    def add_documents(
-        self,
-        documents: List[Document],
-        batch_size: int = 100,
-        show_progress: bool = True,
+    async def add_documents(
+        self, documents: List[Document], batch_size: int = 100
     ) -> None:
-        """
-        Add documents to the vector store.
-
-        Args:
-            documents: List of documents to add
-            batch_size: Number of documents to process at once
-            show_progress: Whether to show progress bar
-        """
+        """Add documents to the vector store in batches."""
         try:
+            if not documents:
+                logger.warning("No documents to add")
+                return
+
+            if not self.collection_name:
+                raise ValueError("Collection name not set")
+
+            logger.info(
+                f"Creating collection {self.collection_name} if it doesn't exist"
+            )
+            self._create_collection(self.collection_name)
+
+            # Log CPU usage before vectorstore initialization
+            cpu_percent = psutil.cpu_percent(interval=1)
+            logger.info(f"CPU Usage before vectorstore init: {cpu_percent}%")
+
+            # Initialize vectorstore
+            logger.info("Initializing vectorstore")
+            self.vectorstore = QdrantVectorStore(
+                client=self.client,
+                collection_name=self.collection_name,
+                embedding=self.embedding_function,
+            )
+
+            # Log embedding model device again
+            if hasattr(self.embedding_function, "model"):
+                device = next(self.embedding_function.model.parameters()).device
+                logger.info(f"Embedding model device before processing: {device}")
+
             # Process documents in batches
-            batches = range(0, len(documents), batch_size)
-            if show_progress:
-                batches = tqdm(batches, desc="Adding documents")
-
-            for i in batches:
+            total_added = 0
+            for i in tqdm(
+                range(0, len(documents), batch_size), desc="Adding documents"
+            ):
                 batch = documents[i : i + batch_size]
-                self.vectordb.add_documents(documents=batch)
+                try:
+                    # Log CPU and GPU usage before batch processing
+                    cpu_percent = psutil.cpu_percent(interval=1)
+                    logger.debug(
+                        f"CPU Usage before batch {i//batch_size + 1}: {cpu_percent}%"
+                    )
+                    if torch.cuda.is_available():
+                        gpu_memory = torch.cuda.memory_allocated() / 1024**2
+                        logger.debug(f"GPU Memory allocated: {gpu_memory:.2f} MB")
 
-            logger.info(f"Added {len(documents)} documents to vector store")
+                    logger.debug(f"Processing batch {i//batch_size + 1}")
+                    self.vectorstore.add_documents(documents=batch)
+                    total_added += len(batch)
+
+                    # Log resource usage after batch
+                    cpu_percent = psutil.cpu_percent(interval=1)
+                    logger.debug(f"CPU Usage after batch: {cpu_percent}%")
+                    if torch.cuda.is_available():
+                        gpu_memory = torch.cuda.memory_allocated() / 1024**2
+                        logger.debug(f"GPU Memory after batch: {gpu_memory:.2f} MB")
+
+                except Exception as e:
+                    logger.error(f"Error adding batch {i//batch_size + 1}: {str(e)}")
+                    raise
+
+            logger.info(
+                f"Successfully added {total_added} documents to collection '{self.collection_name}'"
+            )
 
         except Exception as e:
             logger.error(f"Error adding documents to vector store: {str(e)}")
             raise
 
-    def similarity_search(
-        self,
-        query: Union[str, List[float]],
-        k: int = 4,
-        metadata_filter: Optional[Dict[str, Any]] = None,
-        score_threshold: Optional[float] = None,
-    ) -> List[Document]:
-        """
-        Perform similarity search.
-
-        Args:
-            query: Search query or embedding vector
-            k: Number of results to return
-            metadata_filter: Optional metadata filter
-            score_threshold: Minimum similarity score threshold
-
-        Returns:
-            List of similar documents
-        """
+    async def similarity_search(self, query: str, k: int = 4) -> List[Document]:
+        """Perform similarity search."""
         try:
-            search_params = {}
-            if score_threshold:
-                search_params["score_threshold"] = score_threshold
+            if not self.collection_name:
+                raise ValueError("Collection name not set")
 
-            return self.vectordb.similarity_search(
-                query=query, k=k, filter=metadata_filter, search_params=search_params
-            )
+            if not self.vectorstore:
+                logger.info("Initializing vectorstore for search")
+                self.vectorstore = QdrantVectorStore(
+                    client=self.client,
+                    collection_name=self.collection_name,
+                    embedding=self.embedding_function,  # Changed here too
+                )
+
+            results = self.vectorstore.similarity_search(query, k=k)
+            return results
         except Exception as e:
-            logger.error(f"Error in similarity search: {str(e)}")
+            logger.error(f"Error performing similarity search: {str(e)}")
             raise
 
     def similarity_search_by_vector(
@@ -393,7 +402,7 @@ class VectorStore:
                         )
                     )
 
-            return self.vectordb.get_matches(
+            return self.vectorstore.get_matches(
                 where_document=models.Filter(must=filter_conditions)
             )
 
@@ -542,123 +551,6 @@ class VectorStore:
         except Exception as e:
             logger.warning(f"Could not fetch collections, but continuing: {str(e)}")
             return None
-
-    async def ensure_collection_exists(self, collection_name: str) -> bool:
-        """Ensure collection exists, create if it doesn't."""
-        try:
-            # Check if collection exists
-            collections_response = requests.get(
-                f"http://{self.host}:8716/collections", timeout=10
-            )
-            if collections_response.status_code == 200:
-                collections_data = collections_response.json()
-                print("\nCollections response:", json.dumps(collections_data, indent=2))
-
-                # Parse the collections string looking for the collection name
-                collections_str = str(collections_data)
-                exists = f"name='{collection_name}'" in collections_str
-
-                if not exists:
-                    print(f"\nCreating collection: {collection_name}")
-                    create_response = requests.post(
-                        f"http://{self.host}:8716/collections/{collection_name}",
-                        json={"size": 1024},
-                        timeout=10,
-                    )
-
-                    if create_response.status_code == 200:
-                        print(f"Successfully created collection {collection_name}")
-                        # Wait a moment for the collection to be ready
-                        await asyncio.sleep(1)
-                        return True
-                    else:
-                        print(
-                            f"Failed to create collection: {create_response.status_code}"
-                        )
-                        print(f"Response: {create_response.text}")
-                        return False
-
-                print(f"Collection {collection_name} already exists")
-                return True
-
-            print(f"Failed to get collections: {collections_response.status_code}")
-            return False
-
-        except Exception as e:
-            print(f"Error ensuring collection exists: {str(e)}")
-            print(f"Exception type: {type(e)}")
-            print(f"Full exception details: {traceback.format_exc()}")
-            return False
-
-    async def store_text(
-        self, collection_name: str, text: str, metadata: dict = None
-    ) -> dict:
-        """Store text in vector database."""
-        try:
-            # Ensure collection exists
-            if not await self.ensure_collection_exists(collection_name):
-                raise Exception(f"Failed to create collection: {collection_name}")
-
-            # Get embeddings
-            vector = await self.get_embeddings(text)
-            point_id = str(uuid.uuid4())
-
-            # Prepare payload
-            payload = {
-                "text": text,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-            if metadata:
-                payload.update(metadata)
-
-            # Create point
-            point = {"id": point_id, "vector": vector, "payload": payload}
-
-            # Store the point
-            response = await self.client.upsert(
-                collection_name=collection_name, points=[point]
-            )
-
-            # Wait for storage operation to complete and verify
-            if response.status_code == 200:
-                # Wait a moment for consistency
-                await asyncio.sleep(1)
-
-                # Verify storage
-                search_response = await self.client.scroll(
-                    collection_name=collection_name,
-                    scroll_filter=models.Filter(
-                        must=[
-                            models.FieldCondition(
-                                key="doc_id",
-                                match=models.MatchValue(value=metadata.get("doc_id")),
-                            )
-                        ]
-                    ),
-                    limit=1,
-                )
-
-                if search_response and search_response.points:
-                    stored_point = search_response.points[0]
-                    print("\nDocument stored and verified:")
-                    print(f"ID: {stored_point.id}")
-                    print(f"Doc ID: {stored_point.payload.get('doc_id')}")
-                    print(f"Text: {stored_point.payload.get('text')[:100]}...")
-                    return {
-                        "id": point_id,
-                        "vector": vector,
-                        "payload": stored_point.payload,
-                    }
-                else:
-                    raise Exception("Document storage could not be verified")
-
-            raise Exception(f"Storage failed with status code: {response.status_code}")
-
-        except Exception as e:
-            print(f"\nError storing vectors: {str(e)}")
-            print(f"Exception type: {type(e)}")
-            print(f"Full exception details: {traceback.format_exc()}")
-            raise
 
     async def search_by_doc_id(self, collection_name: str, doc_id: str) -> list:
         """Search for documents by doc_id."""

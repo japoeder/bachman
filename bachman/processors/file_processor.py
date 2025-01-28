@@ -2,12 +2,21 @@
 
 import logging
 from typing import Optional, Dict, List
-from datetime import datetime, timezone
-
-# import uuid
+from datetime import datetime
+import os
+import json
+from pathlib import Path
+import subprocess
+import uuid
+import shutil
 import tabula
 import pymupdf
 import PyPDF2
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.schema import Document
+
+# from bachman.processors.chunking import get_chunking_config
+
 
 # from langchain.document_loaders import PyPDFLoader, TextLoader
 # from bachman.processors.chunking import ChunkingConfig
@@ -64,15 +73,37 @@ class FileProcessor:
 
     def __init__(
         self,
-        text_processor
+        text_processor,
         # , task_tracker: TaskTracker
-        ,
         vector_store: VectorStore,
     ):
         """Initialize with required dependencies."""
         self.text_processor = text_processor
         # self.task_tracker = task_tracker
         self.vector_store = vector_store
+        self.logger = logging.getLogger(__name__)
+        self.has_java = self._check_java_dependencies()
+        self._temp_files = set()  # Track all temp files created
+
+    def _check_java_dependencies(self) -> bool:
+        """Check if Java is installed and accessible."""
+        try:
+            result = subprocess.run(
+                ["java", "-version"], capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                self.logger.info("Java is available for table extraction")
+                return True
+            else:
+                self.logger.warning(
+                    "Java is not available. Table extraction will be disabled."
+                )
+                return False
+        except Exception as e:
+            self.logger.warning(
+                f"Error checking Java: {str(e)}. Table extraction will be disabled."
+            )
+            return False
 
     def read_pdf(self, file_path: str) -> tuple[str, int]:
         """Read text content from a PDF file and return text and word count."""
@@ -88,102 +119,268 @@ class FileProcessor:
             logger.error(f"Error reading PDF file: {str(e)}")
             raise
 
+    def cleanup_temp_files(self, temp_dir: Optional[str] = None):
+        """Clean up temporary files and directories."""
+        try:
+            if temp_dir and os.path.exists(temp_dir):
+                self.logger.info(f"Cleaning up temporary directory: {temp_dir}")
+                shutil.rmtree(temp_dir)
+                self._temp_files.clear()
+            elif self._temp_files:
+                self.logger.info("Cleaning up individual temporary files")
+                for file_path in self._temp_files:
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                self._temp_files.clear()
+
+            self.logger.info("Temporary file cleanup completed")
+        except Exception as e:
+            self.logger.error(f"Error during cleanup: {str(e)}")
+            raise
+
+    def validate_chunking(
+        self, documents: List[Document], chunking_config: dict
+    ) -> dict:
+        """
+        Validate that chunks match the expected configuration.
+
+        Args:
+            documents: List of processed documents
+            chunking_config: Original chunking configuration
+
+        Returns:
+            dict: Validation statistics and any warnings
+        """
+        stats = {
+            "config": chunking_config,
+            "total_chunks": len(documents),
+            "chunk_sizes": [],
+            "avg_chunk_size": 0,
+            "min_chunk_size": float("inf"),
+            "max_chunk_size": 0,
+            "warnings": [],
+            "content_types": {},
+        }
+
+        for doc in documents:
+            # Get chunk size in tokens and characters
+            content_len = len(doc.page_content)
+            stats["chunk_sizes"].append(content_len)
+
+            # Track min/max
+            stats["min_chunk_size"] = min(stats["min_chunk_size"], content_len)
+            stats["max_chunk_size"] = max(stats["max_chunk_size"], content_len)
+
+            # Track content types
+            content_type = doc.metadata.get("content_type", "unknown")
+            stats["content_types"][content_type] = (
+                stats["content_types"].get(content_type, 0) + 1
+            )
+
+        # Calculate average
+        if stats["chunk_sizes"]:
+            stats["avg_chunk_size"] = sum(stats["chunk_sizes"]) / len(
+                stats["chunk_sizes"]
+            )
+
+        # Add warnings for potential issues
+        target_size = chunking_config.get("chunk_size", 512)
+        if stats["max_chunk_size"] > target_size * 1.5:
+            stats["warnings"].append(
+                f"Some chunks exceed target size by 50%+ (max: {stats['max_chunk_size']} vs target: {target_size})"
+            )
+        if stats["min_chunk_size"] < target_size * 0.5:
+            stats["warnings"].append(
+                f"Some chunks are less than 50% of target size (min: {stats['min_chunk_size']} vs target: {target_size})"
+            )
+
+        logger.info("Chunking validation results:")
+        logger.info(f"Total chunks: {stats['total_chunks']}")
+        logger.info(f"Average chunk size: {stats['avg_chunk_size']:.2f} characters")
+        logger.info(
+            f"Size range: {stats['min_chunk_size']} to {stats['max_chunk_size']} characters"
+        )
+        logger.info(f"Content types: {stats['content_types']}")
+        if stats["warnings"]:
+            for warning in stats["warnings"]:
+                logger.warning(warning)
+
+        return stats
+
     async def process_file(
         self,
         file_path: str,
         collection_name: str,
-        metadata: Optional[Dict] = None,
-    ) -> Dict:
-        """Process a file and store its contents."""
-
+        metadata: dict = None,
+        chunking_config: dict = None,
+        temp_dir: Optional[str] = None,
+        cleanup: bool = True,
+    ):
+        """Process a file and store its contents with proper chunking."""
         try:
-            doc_id = metadata.get("doc_id")
-            doc_type = metadata.get("doc_type")
-        except Exception as e:
-            logger.error(
-                f"Please pass a unique doc_id and doc_type in metadata: {str(e)}"
-            )
-            raise
+            self.logger.info("Processing file: %s", file_path)
+            doc_type = metadata.get("doc_type", "default")
+            doc_id = metadata.get("doc_id", str(uuid.uuid4()))
 
-        # Initialize processing status
-        status = ProcessingStatus(doc_id)
-        # await self.task_tracker.update_status(doc_id, status.to_dict())
-
-        try:
-            # Update metadata
-            if metadata is None:
-                metadata = {}
-
-            # Ensure doc_id is included in metadata
-            metadata.update(
-                {
-                    "doc_type": doc_type,
-                    "file_path": file_path,
-                    "processed_at": datetime.now(
-                        timezone.utc
-                    ).isoformat(),  # Also fixing the deprecated datetime.utcnow()
+            # Setup temporary file paths
+            temp_files = {}
+            if temp_dir:
+                os.makedirs(temp_dir, exist_ok=True)
+                base_name = Path(file_path).stem
+                temp_files = {
+                    "text": os.path.join(temp_dir, f"{base_name}_text.txt"),
+                    "tables": os.path.join(temp_dir, f"{base_name}_tables.json"),
+                    "chunks": os.path.join(temp_dir, f"{base_name}_chunks.json"),
                 }
+                # Track temp files for cleanup
+                self._temp_files.update(temp_files.values())
+                self.logger.info(f"Will save intermediate files to: {temp_dir}")
+
+            # Process PDF and get both text and tables
+            documents = []
+            all_tables = []
+            full_text = []
+
+            with open(file_path, "rb") as file:
+                pdf_reader = PyPDF2.PdfReader(file)
+
+                for page_num in range(len(pdf_reader.pages)):
+                    # Extract text
+                    page = pdf_reader.pages[page_num]
+                    text = page.extract_text()
+                    full_text.append(text)
+
+                    # Extract tables if Java is available
+                    if self.has_java:
+                        try:
+                            tables = self._extract_tables(file_path, page_num)
+                            for table_idx, table in enumerate(tables):
+                                table_dict = table.to_dict()
+                                # Convert any non-serializable objects to strings
+                                table_dict = {k: str(v) for k, v in table_dict.items()}
+                                all_tables.append(
+                                    {
+                                        "page": page_num + 1,
+                                        "table_idx": table_idx,
+                                        "content": table_dict,
+                                    }
+                                )
+                                # Create a document for the table
+                                table_text = json.dumps(table_dict, indent=2)
+                                documents.append(
+                                    Document(
+                                        page_content=table_text,
+                                        metadata={
+                                            "source": file_path,
+                                            "doc_id": doc_id,
+                                            "doc_type": doc_type,
+                                            "content_type": "table",
+                                            "page": page_num + 1,
+                                            "table_index": table_idx,
+                                            **metadata,
+                                        },
+                                    )
+                                )
+                        except Exception as e:
+                            self.logger.warning(
+                                f"Error extracting tables from page {page_num + 1}: {str(e)}"
+                            )
+
+            # Save intermediate files if temp_dir is provided
+            if temp_dir:
+                # Save full text
+                with open(temp_files["text"], "w", encoding="utf-8") as f:
+                    f.write("\n".join(full_text))
+                self.logger.info(f"Saved text to: {temp_files['text']}")
+
+                # Save tables
+                with open(temp_files["tables"], "w", encoding="utf-8") as f:
+                    json.dump(all_tables, f, indent=2)
+                self.logger.info(f"Saved tables to: {temp_files['tables']}")
+
+            # Process text chunks
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=chunking_config.get("chunk_size", 512),
+                chunk_overlap=chunking_config.get("chunk_overlap", 50),
             )
+            text_chunks = text_splitter.split_text("\n".join(full_text))
 
-            # Ensure collection exists
-            logger.info(f"Ensuring collection {collection_name} exists")
-            await self.vector_store.ensure_collection(collection_name)
+            # Save chunks if temp_dir provided
+            if temp_dir:
+                with open(temp_files["chunks"], "w", encoding="utf-8") as f:
+                    json.dump(text_chunks, f, indent=2)
+                self.logger.info(f"Saved chunks to: {temp_files['chunks']}")
 
-            # Read file content
-            try:
-                if file_path.lower().endswith(".pdf"):
-                    text_content, word_count = self.read_pdf(file_path)
-                    metadata["word_count"] = word_count
-                elif file_path.lower().endswith((".txt", ".text")):
-                    try:
-                        with open(file_path, "r", encoding="utf-8") as file:
-                            text_content = file.read()
-                            word_count = len(text_content.split())
-                            metadata["word_count"] = word_count
-                    except UnicodeDecodeError:
-                        # Fallback to latin-1 if UTF-8 fails
-                        with open(file_path, "r", encoding="latin-1") as file:
-                            text_content = file.read()
-                            word_count = len(text_content.split())
-                            metadata["word_count"] = word_count
-                else:
-                    raise ValueError(f"Unsupported file type: {file_path}")
-
-                # Process text content
-                text_result = await self.text_processor.process_text(
-                    text=text_content,
-                    collection_name=collection_name,
-                    metadata=metadata,  # Pass complete metadata including doc_id
+            # Create documents from text chunks
+            for i, chunk in enumerate(text_chunks):
+                documents.append(
+                    Document(
+                        page_content=chunk,
+                        metadata={
+                            "source": file_path,
+                            "doc_id": doc_id,
+                            "doc_type": doc_type,
+                            "content_type": "text",
+                            "chunk_index": i,
+                            "total_chunks": len(text_chunks),
+                            **metadata,
+                        },
+                    )
                 )
-                status.update("text", "completed")
-            except Exception as e:
-                logger.error(f"Error processing text: {str(e)}")
-                status.update("text", "failed", str(e))
-                raise
 
-            # Update final status
-            if any(comp["status"] == "failed" for comp in status.components.values()):
-                status.status = "failed"
-            else:
-                status.status = "completed"
+            # Add validation with prominent logging
+            self.logger.info("\n" + "=" * 50)
+            self.logger.info("Starting Chunking Validation")
+            self.logger.info("=" * 50)
+            chunking_stats = self.validate_chunking(documents, chunking_config)
 
-            # await self.task_tracker.update_status(doc_id, status.to_dict())
+            # Store documents in vector store
+            self.logger.info("Adding %d documents to vector store", len(documents))
+            self.logger.info(f"About to add documents to collection: {collection_name}")
+            self.vector_store.collection_name = collection_name
+            await self.vector_store.add_documents(documents)
 
-            return {
-                "status": status.status,
+            result = {
+                "status": "success",
                 "doc_id": doc_id,
-                "collection": collection_name,
-                "metadata": metadata,
-                "text_result": text_result,
+                "num_documents": len(documents),
+                "num_text_chunks": len(text_chunks),
+                "num_tables": len(all_tables),
+                "file_path": file_path,
+                "temp_files": temp_files if temp_dir else None,
+                "doc_type": doc_type,
+                "chunking_config": chunking_config,
+                "chunking_stats": chunking_stats,
             }
 
+            # Log the final results
+            self.logger.info("\n" + "=" * 50)
+            self.logger.info("Processing Results")
+            self.logger.info("=" * 50)
+            self.logger.info("Document ID: %s", doc_id)
+            self.logger.info("Total documents: %d", len(documents))
+            self.logger.info("Text chunks: %d", len(text_chunks))
+            self.logger.info("Tables: %d", len(all_tables))
+            self.logger.info("=" * 50 + "\n")
+
+            # Cleanup if requested
+            if cleanup:
+                self.logger.info("Cleaning up temporary files")
+                self.cleanup_temp_files(temp_dir)
+                result["temp_files"] = None  # Files no longer exist
+
+            return result
+
         except Exception as e:
-            logger.error(f"Error processing file: {str(e)}")
-            if "status" in locals():
-                status.status = "failed"
-                status.errors.append(str(e))
-                # await self.task_tracker.update_status(doc_id, status.to_dict())
+            self.logger.error("Error processing file %s: %s", file_path, str(e))
             raise
+
+    def __del__(self):
+        """Cleanup any remaining temporary files on object destruction."""
+        try:
+            self.cleanup_temp_files()
+        except Exception as e:
+            self.logger.error(f"Error during final cleanup: {str(e)}")
 
     async def _process_text_components(
         self, file_path: str, status: ProcessingStatus
@@ -325,3 +522,25 @@ class FileProcessor:
             logger.error(f"Error extracting tables from page {page_num}: {str(e)}")
 
         return tables
+
+    def _extract_tables(self, file_path: str, page_num: int) -> List[Dict]:
+        """Extract tables from a specific page of the PDF."""
+        try:
+            # Use tabula-py to extract tables
+            tables = tabula.read_pdf(
+                file_path,
+                pages=page_num + 1,  # tabula uses 1-based page numbers
+                multiple_tables=True,
+                guess=True,
+                lattice=True,  # For tables with lines/borders
+                stream=True,  # For tables without clear borders
+                pandas_options={"header": None},  # Don't assume first row is header
+            )
+
+            self.logger.info(f"Found {len(tables)} tables on page {page_num + 1}")
+            return tables
+        except Exception as e:
+            self.logger.error(
+                f"Error extracting tables from page {page_num + 1}: {str(e)}"
+            )
+            return []
