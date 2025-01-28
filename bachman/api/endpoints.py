@@ -57,7 +57,7 @@ def create_app():
                     "ticker": data.get("ticker", "UNKNOWN"),
                     "type": data.get("analysis_type", "sentiment"),
                     "source": data.get("load_type", "live"),
-                    "id": str(uuid.uuid4()),
+                    "id": data.get("metadata", {}).get("doc_id", str(uuid.uuid4())),
                 },
             )
 
@@ -159,8 +159,6 @@ def create_app():
             # Extract required parameters
             file_path = data.get("file_path")
             collection_name = data.get("collection_name")
-            doc_type = data.get("doc_type")
-            process_sentiment = data.get("process_sentiment", False)
             metadata = data.get("metadata", {})
 
             if not file_path or not collection_name:
@@ -178,8 +176,6 @@ def create_app():
                 Components.file_processor.process_file(
                     file_path=file_path,
                     collection_name=collection_name,
-                    doc_type=doc_type,
-                    process_sentiment=process_sentiment,
                     metadata=metadata,
                 )
             )

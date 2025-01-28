@@ -2,8 +2,9 @@
 
 import logging
 from typing import Optional, Dict, List
-import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+
+# import uuid
 import tabula
 import pymupdf
 import PyPDF2
@@ -13,7 +14,8 @@ import PyPDF2
 
 # from bachman.processors.types import ChunkInfo, HashInfo, ProcessingResult
 from bachman.processors.document_types import DocumentType
-from bachman.core.interfaces import TaskTracker
+
+# from bachman.core.interfaces import TaskTracker
 from bachman.processors.vectorstore import VectorStore
 
 logger = logging.getLogger(__name__)
@@ -61,11 +63,15 @@ class FileProcessor:
     """
 
     def __init__(
-        self, text_processor, task_tracker: TaskTracker, vector_store: VectorStore
+        self,
+        text_processor
+        # , task_tracker: TaskTracker
+        ,
+        vector_store: VectorStore,
     ):
         """Initialize with required dependencies."""
         self.text_processor = text_processor
-        self.task_tracker = task_tracker
+        # self.task_tracker = task_tracker
         self.vector_store = vector_store
 
     def read_pdf(self, file_path: str) -> tuple[str, int]:
@@ -86,28 +92,36 @@ class FileProcessor:
         self,
         file_path: str,
         collection_name: str,
-        doc_type: str,
-        process_sentiment: bool = False,
         metadata: Optional[Dict] = None,
     ) -> Dict:
         """Process a file and store its contents."""
+
         try:
-            # Generate document ID
-            doc_id = str(uuid.uuid4())
+            doc_id = metadata.get("doc_id")
+            doc_type = metadata.get("doc_type")
+        except Exception as e:
+            logger.error(
+                f"Please pass a unique doc_id and doc_type in metadata: {str(e)}"
+            )
+            raise
 
-            # Initialize processing status
-            status = ProcessingStatus(doc_id)
-            await self.task_tracker.update_status(doc_id, status.to_dict())
+        # Initialize processing status
+        status = ProcessingStatus(doc_id)
+        # await self.task_tracker.update_status(doc_id, status.to_dict())
 
+        try:
             # Update metadata
             if metadata is None:
                 metadata = {}
+
+            # Ensure doc_id is included in metadata
             metadata.update(
                 {
-                    "doc_id": doc_id,
                     "doc_type": doc_type,
                     "file_path": file_path,
-                    "processed_at": datetime.utcnow().isoformat(),
+                    "processed_at": datetime.now(
+                        timezone.utc
+                    ).isoformat(),  # Also fixing the deprecated datetime.utcnow()
                 }
             )
 
@@ -120,16 +134,26 @@ class FileProcessor:
                 if file_path.lower().endswith(".pdf"):
                     text_content, word_count = self.read_pdf(file_path)
                     metadata["word_count"] = word_count
+                elif file_path.lower().endswith((".txt", ".text")):
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as file:
+                            text_content = file.read()
+                            word_count = len(text_content.split())
+                            metadata["word_count"] = word_count
+                    except UnicodeDecodeError:
+                        # Fallback to latin-1 if UTF-8 fails
+                        with open(file_path, "r", encoding="latin-1") as file:
+                            text_content = file.read()
+                            word_count = len(text_content.split())
+                            metadata["word_count"] = word_count
                 else:
-                    with open(file_path, "r", encoding="utf-8") as file:
-                        text_content = file.read()
-                        metadata["word_count"] = len(text_content.split())
+                    raise ValueError(f"Unsupported file type: {file_path}")
 
                 # Process text content
                 text_result = await self.text_processor.process_text(
                     text=text_content,
                     collection_name=collection_name,
-                    metadata=metadata,
+                    metadata=metadata,  # Pass complete metadata including doc_id
                 )
                 status.update("text", "completed")
             except Exception as e:
@@ -143,7 +167,7 @@ class FileProcessor:
             else:
                 status.status = "completed"
 
-            await self.task_tracker.update_status(doc_id, status.to_dict())
+            # await self.task_tracker.update_status(doc_id, status.to_dict())
 
             return {
                 "status": status.status,
@@ -158,7 +182,7 @@ class FileProcessor:
             if "status" in locals():
                 status.status = "failed"
                 status.errors.append(str(e))
-                await self.task_tracker.update_status(doc_id, status.to_dict())
+                # await self.task_tracker.update_status(doc_id, status.to_dict())
             raise
 
     async def _process_text_components(

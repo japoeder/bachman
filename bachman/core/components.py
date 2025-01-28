@@ -11,7 +11,7 @@ from bachman.processors.file_processor import FileProcessor
 from bachman.models.llm import get_groq_llm
 
 # from bachman.core.interfaces import TaskTracker
-from bachman.core.task_tracker import AsyncTaskTracker
+# from bachman.core.task_tracker import AsyncTaskTracker
 
 logger = logging.getLogger(__name__)
 
@@ -58,13 +58,13 @@ class Components:
             logger.info("Text processor initialized successfully")
 
             # Initialize task tracker
-            cls.task_tracker = AsyncTaskTracker()
+            # cls.task_tracker = AsyncTaskTracker()
             logger.info("Task tracker initialized successfully")
 
             # Initialize file processor with text processor
             cls.file_processor = FileProcessor(
                 text_processor=cls.text_processor,  # Now text_processor is initialized
-                task_tracker=cls.task_tracker,
+                # task_tracker=cls.task_tracker,
                 vector_store=cls.vector_store,
             )
             logger.info("File processor initialized successfully")
@@ -121,7 +121,7 @@ def initialize_components():
         logger.info("Sentiment analyzer initialized successfully")
 
         # Initialize task tracker
-        Components.task_tracker = AsyncTaskTracker()
+        # Components.task_tracker = AsyncTaskTracker()
         logger.info("Task tracker initialized successfully")
 
         # Initialize file processor with all required arguments
