@@ -36,6 +36,32 @@ def load_chunking_config():
         return {}
 
 
+def load_embedding_config():
+    """Load embedding configuration from JSON file."""
+    try:
+        embedding_cfg = get_path("bachman_rag")
+        with open(embedding_cfg, "r", encoding="utf-8") as f:
+            config = json.load(f)
+            logger.info("Successfully loaded embedding configurations")
+            return config.get("embedding_configs", {})
+    except Exception as e:
+        logger.error(f"Error loading embedding configurations: {str(e)}")
+        return {}
+
+
+def load_qdrant_collection_configs():
+    """Load Qdrant collection configurations from JSON file."""
+    try:
+        collection_cfg = get_path("bachman_rag")
+        with open(collection_cfg, "r", encoding="utf-8") as f:
+            config = json.load(f)
+            logger.info("Successfully loaded Qdrant collection configurations")
+            return config.get("collection_configs", {})
+    except Exception as e:
+        logger.error(f"Error loading Qdrant collection configurations: {str(e)}")
+        return {}
+
+
 def initialize_components():
     """Initialize all core components."""
     try:
@@ -48,6 +74,16 @@ def initialize_components():
         chunk_cfg = load_chunking_config()
         Components.chunking_config = chunk_cfg
         logger.info("Chunking configurations loaded")
+
+        # Load embedding configuration
+        embedding_cfg = load_embedding_config()
+        Components.embedding_config = embedding_cfg
+        logger.info("Embedding configurations loaded")
+
+        # Load RAG collection configurations
+        collection_cfg = load_qdrant_collection_configs()
+        Components.collection_config = collection_cfg
+        logger.info("Qdrant collection configurations loaded")
 
         # Initialize all components using the Components class method
         success = Components.initialize_components(qdrant_host=qdrant_host)
