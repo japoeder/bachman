@@ -98,6 +98,7 @@ class TextProcessor:
             # Use provided config or fall back to default
             config = chunking_config or self.default_chunking_config
             self.logger.info(f"Processing text with chunking config: {config}")
+            self.vector_store.collection_name = collection_name
 
             # Create text splitter based on config
             text_splitter = RecursiveCharacterTextSplitter(
@@ -121,11 +122,19 @@ class TextProcessor:
                     **(metadata or {}),
                 }
 
+                # Store documents in vector store
+                self.logger.info("Adding %d chunks to vector store", len(chunks))
+                self.logger.info(
+                    f"About to add chunks to collection: {collection_name}"
+                )
+
+                print(f"collection_name: {collection_name}")
                 # Store chunk with metadata
-                await self.vector_store.add_texts(
-                    texts=[chunk],
-                    metadatas=[chunk_metadata],
-                    ids=[f"{doc_id}_chunk_{i}"],
+                await self.vector_store.add_text(
+                    text=chunk,
+                    metadata=chunk_metadata,
+                    # id=f"{doc_id}_chunk_{i}",
+                    collection_name=collection_name,
                 )
 
             self.logger.info(f"Successfully processed text with ID {doc_id}")

@@ -14,6 +14,12 @@ from bachman.core.components import Components
 
 logger = logging.getLogger(__name__)
 
+# Global configuration variables
+QDRANT_HOST = os.getenv("QDRANT_HOST", "192.168.1.10")
+CHUNKING_CONFIGS = None
+EMBEDDING_CONFIGS = None
+COLLECTION_CONFIGS = None
+
 
 def setup_logging():
     """Configure logging for the application."""
@@ -62,6 +68,22 @@ def load_qdrant_collection_configs():
         return {}
 
 
+# def initialize_app_config():
+#     """Initialize application configurations."""
+#     global CHUNKING_CONFIGS, EMBEDDING_CONFIGS, COLLECTION_CONFIGS
+
+#     try:
+#         logger.info("Loading configurations...")
+#         CHUNKING_CONFIGS = load_chunking_config()
+#         EMBEDDING_CONFIGS = load_embedding_config()
+#         COLLECTION_CONFIGS = load_qdrant_collection_configs()
+#         logger.info("All configurations loaded successfully")
+#         return True
+#     except Exception as e:
+#         logger.error(f"Error loading configurations: {str(e)}")
+#         return False
+
+
 def initialize_components():
     """Initialize all core components."""
     try:
@@ -69,6 +91,7 @@ def initialize_components():
 
         # Get Qdrant host from environment or use default
         qdrant_host = os.getenv("QDRANT_HOST", "192.168.1.10")
+        host_components = Components(qdrant_host=qdrant_host)
 
         # Load chunking configuration first
         chunk_cfg = load_chunking_config()
@@ -86,7 +109,8 @@ def initialize_components():
         logger.info("Qdrant collection configurations loaded")
 
         # Initialize all components using the Components class method
-        success = Components.initialize_components(qdrant_host=qdrant_host)
+
+        success = host_components.initialize_components()
 
         if not success:
             logger.error("Failed to initialize components")

@@ -3,8 +3,12 @@ This module initializes and manages core components for the Bachman API.
 """
 
 import logging
+import json
 
 # import json
+
+from quantum_trade_utilities.core.get_path import get_path
+
 from bachman.models.embeddings import get_embeddings
 from bachman.processors.vectorstore import VectorStore
 from bachman.processors.sentiment import SentimentAnalyzer
@@ -24,90 +28,107 @@ class Components:
     A class to hold references to core components.
     """
 
-    embeddings = None
-    vector_store: VectorStore = None
-    sentiment_analyzer = None
-    file_processor: FileProcessor = None
-    text_processor = None
-    chunking_config = None  # Will store the loaded chunking configuration
-    # task_tracker: TaskTracker = None
-    qdrant_host: str = None
-    qdrant_port: int = 8716
+    def __init__(self, qdrant_host: str, qdrant_port: int = 8716):
+        self.qdrant_host = qdrant_host
+        self.qdrant_port = qdrant_port
+        self.embeddings = None
+        self.vector_store = None
+        self.sentiment_analyzer = None
+        self.file_processor = None
+        self.text_processor = None
+        self.chunking_config = None
+        self.embedding_config = None
+        self.collection_config = None
 
-    @classmethod
-    def initialize_components(cls, qdrant_host: str):
+    def initialize_components(self):
         """Initialize all components with dependencies."""
         try:
             logger.info("Starting component initialization...")
-            logger.debug(
-                f"Current Components state - vector_store: {cls.vector_store}, sentiment_analyzer: {cls.sentiment_analyzer}"
-            )
-
-            # Store Qdrant connection info
-            cls.qdrant_host = qdrant_host
-            logger.debug(f"Setting Qdrant host to: {qdrant_host}")
 
             # Initialize embeddings
-            cls.embeddings = get_embeddings()
-            logger.info("Embeddings model initialized successfully")
+            self.embeddings = get_embeddings()
 
             # Initialize vector store
-            cls.vector_store = VectorStore(
-                host=qdrant_host,
-                port=cls.qdrant_port,
-                embedding_function=cls.embeddings,
+            self.vector_store = VectorStore(
+                host=self.qdrant_host,
+                port=self.qdrant_port,
+                embedding_function=self.embeddings,
             )
-            logger.info(
-                f"Vector store initialized successfully for {qdrant_host}:{cls.qdrant_port}"
-            )
-            logger.debug(f"Vector store client: {cls.vector_store.client}")
 
             # Initialize text processor with chunking config
-            cls.text_processor = TextProcessor(
-                vector_store=cls.vector_store,
-                chunking_config=cls.chunking_config,  # Pass the chunking config
+            self.text_processor = TextProcessor(
+                vector_store=self.vector_store,
+                chunking_config=self.chunking_config,  # Pass the chunking config
             )
             logger.info("Text processor initialized successfully")
 
-            # Initialize task tracker
-            # cls.task_tracker = AsyncTaskTracker()
-            logger.info("Task tracker initialized successfully")
-
             # Initialize file processor with text processor
-            cls.file_processor = FileProcessor(
-                text_processor=cls.text_processor,
-                # task_tracker=cls.task_tracker,
-                vector_store=cls.vector_store,
+            self.file_processor = FileProcessor(
+                text_processor=self.text_processor,
+                vector_store=self.vector_store,
             )
             logger.info("File processor initialized successfully")
 
             # Initialize LLM and sentiment analyzer
             llm = get_groq_llm()
-            cls.sentiment_analyzer = SentimentAnalyzer(llm=llm)
+            self.sentiment_analyzer = SentimentAnalyzer(llm=llm)
             logger.info("Sentiment analyzer initialized successfully")
 
-            logger.debug(
-                f"Final Components state - vector_store: {cls.vector_store}, sentiment_analyzer: {cls.sentiment_analyzer}"
-            )
-            return True
+            self.chunking_config = self.load_chunking_config()
+            self.embedding_config = self.load_embedding_config()
+            self.collection_config = self.load_qdrant_collection_configs()
 
+            return True
         except Exception as e:
             logger.error(f"Failed to initialize components: {str(e)}")
             logger.error("Full traceback:", exc_info=True)
             return False
 
-    @classmethod
-    def initialize_text_processor(cls):
+    def initialize_text_processor(self, vector_store):
         """Initialize the text processor."""
-        cls.text_processor = TextProcessor(cls.vector_store)
+        return TextProcessor(vector_store=vector_store)
 
-    @classmethod
-    def initialize_llm(cls):
+    def initialize_llm(self):
         """Initialize the LLM."""
         llm = get_groq_llm()
-        cls.sentiment_analyzer = SentimentAnalyzer(llm=llm)
+        return SentimentAnalyzer(llm=llm)
 
-    @classmethod
-    def get_chunking_config(cls, doc_type: str) -> dict:
+    def get_chunking_config(self, doc_type: str) -> dict:
         """Get chunking configuration for a specific document type."""
-        return get_chunking_config(cls.chunking_config, doc_type)
+        return get_chunking_config(self.chunking_config, doc_type)
+
+    def load_chunking_config(self):
+        """Load chunking configuration from JSON file."""
+        try:
+            chunk_cfg = get_path("bachman_rag")
+            with open(chunk_cfg, "r", encoding="utf-8") as f:
+                config = json.load(f)
+                logger.info("Successfully loaded chunking configuration")
+                return config.get("qdrant_chunking_config", {})
+        except Exception as e:
+            logger.error(f"Error loading chunking configuration: {str(e)}")
+            return {}
+
+    def load_embedding_config(self):
+        """Load embedding configuration from JSON file."""
+        try:
+            embedding_cfg = get_path("bachman_rag")
+            with open(embedding_cfg, "r", encoding="utf-8") as f:
+                config = json.load(f)
+                logger.info("Successfully loaded embedding configurations")
+                return config.get("embedding_configs", {})
+        except Exception as e:
+            logger.error(f"Error loading embedding configurations: {str(e)}")
+            return {}
+
+    def load_qdrant_collection_configs(self):
+        """Load Qdrant collection configurations from JSON file."""
+        try:
+            collection_cfg = get_path("bachman_rag")
+            with open(collection_cfg, "r", encoding="utf-8") as f:
+                config = json.load(f)
+                logger.info("Successfully loaded Qdrant collection configurations")
+                return config.get("collection_configs", {})
+        except Exception as e:
+            logger.error(f"Error loading Qdrant collection configurations: {str(e)}")
+            return {}

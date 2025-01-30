@@ -22,6 +22,12 @@ from bachman.api.middleware import requires_api_key
 from bachman.core.components import Components
 from bachman.utils.format_results import format_analysis_results
 from bachman.config.prompt_config import prompt_config
+from bachman.config.app_config import (
+    QDRANT_HOST,
+    # CHUNKING_CONFIGS,
+    # EMBEDDING_CONFIGS,
+    # COLLECTION_CONFIGS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +161,9 @@ def create_app():
             if not data:
                 return jsonify({"error": "No data provided"}), 400
 
+            components = Components(qdrant_host=QDRANT_HOST)
+            components.initialize_components()
+
             # Extract and validate collection name
             collection_name = data.get("collection_name")
             if not collection_name:
@@ -188,7 +197,7 @@ def create_app():
 
             # Run the coroutine in the event loop
             result = asyncio.run(
-                Components.text_processor.process_text(
+                components.text_processor.process_text(
                     text=text,
                     collection_name=collection_name,
                     metadata=data.get("metadata"),
@@ -208,33 +217,36 @@ def create_app():
     def process_file():
         """Process a file and store its contents."""
         try:
-            data = request.get_json()
+            # Create new components instance for this request
+            components = Components(qdrant_host=QDRANT_HOST)
+            components.initialize_components()
 
+            data = request.get_json()
             # Extract required parameters
             file_path = data.get("file_path")
             collection_name = data.get("collection_name")
             metadata = data.get("metadata", {})
             temp_dir = data.get("temp_dir")
-            cleanup = data.get("cleanup", True)  # Default to True for cleanup
+            cleanup = data.get("cleanup", True)
 
             if not file_path or not collection_name:
                 return jsonify({"error": "Missing required parameters"}), 400
 
             # Get doc_type specific chunking config
             doc_type = metadata.get("doc_type", "default")
-            chunking_config = Components.get_chunking_config(doc_type)
+            chunking_config = components.get_chunking_config(doc_type)
             logger.info(
                 f"Using chunking config for doc_type '{doc_type}': {chunking_config}"
             )
 
             result = asyncio.run(
-                Components.file_processor.process_file(
+                components.file_processor.process_file(
                     file_path=file_path,
                     collection_name=collection_name,
                     metadata=metadata,
                     chunking_config=chunking_config,
                     temp_dir=temp_dir,
-                    cleanup=cleanup,  # Pass cleanup preference
+                    cleanup=cleanup,
                 )
             )
 
@@ -361,6 +373,9 @@ def create_app():
     def delete():
         """Delete endpoint to remove either a specific point or an entire collection."""
         try:
+            # Create new components instance for this request
+            components = Components(qdrant_host=QDRANT_HOST)
+
             data = request.json
             if not data:
                 return jsonify({"error": "No data provided"}), 400
@@ -372,7 +387,7 @@ def create_app():
             # Check if this is a collection deletion request
             if data.get("confirm_coll_delete") is True:
                 # Delete collection endpoint
-                delete_url = f"http://{Components.vector_store.host}:8716/collections/{collection_name}"
+                delete_url = f"http://{components.qdrant_host}:8716/collections/{collection_name}"
 
                 response = requests.delete(
                     delete_url,
@@ -410,7 +425,7 @@ def create_app():
                 )
 
             # Point deletion logic
-            delete_url = f"http://{Components.vector_store.host}:8716/collections/{collection_name}/points"
+            delete_url = f"http://{components.vector_store.host}:8716/collections/{collection_name}/points"
             delete_payload = {
                 "points": [
                     {

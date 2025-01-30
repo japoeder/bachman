@@ -228,6 +228,79 @@ class VectorStore:
             logger.error(f"Error adding documents to vector store: {str(e)}")
             raise
 
+    async def add_text(
+        self,
+        collection_name: str,
+        text: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        # id: Optional[str] = None,
+        skip_if_exists: bool = False,
+    ) -> Dict[str, Any]:
+        """Add a single text document to the vector store."""
+        try:
+            if not self.collection_name:
+                raise ValueError("Collection name not set")
+
+            logger.info(
+                f"Creating collection {self.collection_name} if it doesn't exist"
+            )
+            self._create_collection(self.collection_name)
+
+            if skip_if_exists and metadata and metadata.get("doc_id"):
+                doc_id = metadata["doc_id"]
+                exists = await self.text_exists(collection_name, doc_id)
+                if exists:
+                    return {
+                        "status": "skipped",
+                        "reason": "document already exists",
+                        "doc_id": doc_id,
+                    }
+
+            # Get embeddings for the text
+            vector = await self.get_embeddings(text)
+            point_id = str(uuid.uuid4())
+
+            # Prepare the payload
+            payload = {
+                "text": text,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                **(metadata if metadata else {}),
+            }
+
+            point_data = {
+                "points": [
+                    {
+                        "id": point_id,
+                        "vector": vector,
+                        "payload": payload,
+                    }
+                ]
+            }
+
+            # Use the upsert endpoint to store the vector
+            response = requests.post(
+                f"http://{self.host}:8716/collections/{collection_name}/points",
+                json=point_data,
+                timeout=10,
+            )
+
+            if response.status_code != 200:
+                raise Exception(f"Failed to store vector: {response.text}")
+
+            result = {"id": point_id, "payload": payload}  # Removed vector from result
+
+            logger.info("\nSuccessfully created new document:")
+            logger.info(json.dumps(result, indent=2))
+
+            return {
+                **result,
+                "vector": vector,
+            }  # Include vector in return but not in print
+
+        except Exception as e:
+            logger.error(f"Error storing text document: {str(e)}")
+            raise
+
     async def similarity_search(self, query: str, k: int = 4) -> List[Document]:
         """Perform similarity search."""
         try:
