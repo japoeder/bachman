@@ -286,6 +286,9 @@ def create_app():
             if not data:
                 return jsonify({"error": "No data provided"}), 400
 
+            components = Components(qdrant_host=QDRANT_HOST)
+            components.initialize_components()
+
             # Log just the search request details
             logger.info("=" * 80)
             logger.info("SEARCH REQUEST DETAILS")
@@ -308,7 +311,7 @@ def create_app():
                 filter_conditions.append({"key": key, "match": {"value": value}})
 
             # Make the search request
-            search_url = f"http://{Components.vector_store.host}:8716/collections/{collection_name}/search"
+            search_url = f"http://{components.vector_store.host}:8716/collections/{collection_name}/search"
             search_payload = {
                 "query_vector": [0] * 1024,
                 "filter": {"must": filter_conditions},

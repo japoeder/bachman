@@ -233,7 +233,7 @@ class VectorStore:
         collection_name: str,
         text: str,
         metadata: Optional[Dict[str, Any]] = None,
-        # id: Optional[str] = None,
+        cid: Optional[str] = None,
         skip_if_exists: bool = False,
     ) -> Dict[str, Any]:
         """Add a single text document to the vector store."""
@@ -258,7 +258,6 @@ class VectorStore:
 
             # Get embeddings for the text
             vector = await self.get_embeddings(text)
-            point_id = str(uuid.uuid4())
 
             # Prepare the payload
             payload = {
@@ -270,7 +269,7 @@ class VectorStore:
             point_data = {
                 "points": [
                     {
-                        "id": point_id,
+                        "id": cid,
                         "vector": vector,
                         "payload": payload,
                     }
@@ -287,7 +286,7 @@ class VectorStore:
             if response.status_code != 200:
                 raise Exception(f"Failed to store vector: {response.text}")
 
-            result = {"id": point_id, "payload": payload}  # Removed vector from result
+            result = {"id": cid, "payload": payload}  # Removed vector from result
 
             logger.info("\nSuccessfully created new document:")
             logger.info(json.dumps(result, indent=2))

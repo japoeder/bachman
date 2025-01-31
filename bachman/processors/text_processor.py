@@ -133,7 +133,7 @@ class TextProcessor:
                 await self.vector_store.add_text(
                     text=chunk,
                     metadata=chunk_metadata,
-                    # id=f"{doc_id}_chunk_{i}",
+                    cid=f"{doc_id}_chunk_{i}",
                     collection_name=collection_name,
                 )
 
