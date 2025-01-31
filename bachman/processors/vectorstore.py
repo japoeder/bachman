@@ -233,8 +233,7 @@ class VectorStore:
         collection_name: str,
         text: str,
         metadata: Optional[Dict[str, Any]] = None,
-        cid: Optional[str] = None,
-        skip_if_exists: bool = False,
+        doc_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Add a single text document to the vector store."""
         try:
@@ -246,15 +245,7 @@ class VectorStore:
             )
             self._create_collection(self.collection_name)
 
-            if skip_if_exists and metadata and metadata.get("doc_id"):
-                doc_id = metadata["doc_id"]
-                exists = await self.text_exists(collection_name, doc_id)
-                if exists:
-                    return {
-                        "status": "skipped",
-                        "reason": "document already exists",
-                        "doc_id": doc_id,
-                    }
+            qdrant_id = str(uuid.uuid4())
 
             # Get embeddings for the text
             vector = await self.get_embeddings(text)
@@ -262,6 +253,7 @@ class VectorStore:
             # Prepare the payload
             payload = {
                 "text": text,
+                "doc_id": doc_id,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 **(metadata if metadata else {}),
             }
@@ -269,7 +261,7 @@ class VectorStore:
             point_data = {
                 "points": [
                     {
-                        "id": cid,
+                        "id": qdrant_id,
                         "vector": vector,
                         "payload": payload,
                     }
@@ -286,7 +278,7 @@ class VectorStore:
             if response.status_code != 200:
                 raise Exception(f"Failed to store vector: {response.text}")
 
-            result = {"id": cid, "payload": payload}  # Removed vector from result
+            result = {"id": qdrant_id, "payload": payload}  # Removed vector from result
 
             logger.info("\nSuccessfully created new document:")
             logger.info(json.dumps(result, indent=2))

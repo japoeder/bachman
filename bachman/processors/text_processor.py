@@ -100,6 +100,19 @@ class TextProcessor:
             self.logger.info(f"Processing text with chunking config: {config}")
             self.vector_store.collection_name = collection_name
 
+            # Generate a unique ID for the document
+            doc_id = metadata.get("doc_id") if metadata else None
+
+            # Check if the document already exists in the collection
+            if skip_if_exists and doc_id:
+                exists = await self.vector_store.text_exists(collection_name, doc_id)
+                if exists:
+                    return {
+                        "status": "skipped",
+                        "reason": "document already exists",
+                        "doc_id": doc_id,
+                    }
+
             # Create text splitter based on config
             text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=config["chunk_size"],
@@ -113,10 +126,10 @@ class TextProcessor:
             self.logger.info(f"Split text into {len(chunks)} chunks")
 
             # Generate embeddings and store in vector store
-            doc_id = str(uuid.uuid4())
+            qdrant_id = str(uuid.uuid4())
             for i, chunk in enumerate(chunks):
                 chunk_metadata = {
-                    "parent_id": doc_id,
+                    "parent_id": qdrant_id,
                     "chunk_index": i,
                     "total_chunks": len(chunks),
                     **(metadata or {}),
@@ -133,14 +146,14 @@ class TextProcessor:
                 await self.vector_store.add_text(
                     text=chunk,
                     metadata=chunk_metadata,
-                    cid=f"{doc_id}_chunk_{i}",
                     collection_name=collection_name,
+                    doc_id=doc_id,
                 )
 
-            self.logger.info(f"Successfully processed text with ID {doc_id}")
+            self.logger.info(f"Successfully processed text with ID {qdrant_id}")
             return {
                 "status": "success",
-                "doc_id": doc_id,
+                "doc_id": qdrant_id,
                 "num_chunks": len(chunks),
                 "chunking_config": config,
             }
