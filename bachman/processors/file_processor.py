@@ -375,12 +375,13 @@ class FileProcessor:
             self.logger.error("Error processing file %s: %s", file_path, str(e))
             raise
 
-    def __del__(self):
-        """Cleanup any remaining temporary files on object destruction."""
-        try:
-            self.cleanup_temp_files()
-        except Exception as e:
-            self.logger.error(f"Error during final cleanup: {str(e)}")
+    # def __del__(self):
+    #     """Cleanup any remaining temporary files on object destruction."""
+    #     try:
+    #         print("TESTING Cleaning up temp files")
+    #         #self.cleanup_temp_files()
+    #     except Exception as e:
+    #         self.logger.error(f"Error during final cleanup: {str(e)}")
 
     async def _process_text_components(
         self, file_path: str, status: ProcessingStatus

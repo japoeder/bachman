@@ -283,6 +283,7 @@ def create_app():
         """Search endpoint to query existing documents in the vector store."""
         try:
             data = request.json
+            limit = data.get("limit", 100)
             if not data:
                 return jsonify({"error": "No data provided"}), 400
 
@@ -315,7 +316,7 @@ def create_app():
             search_payload = {
                 "query_vector": [0] * 1024,
                 "filter": {"must": filter_conditions},
-                "limit": 100,
+                "limit": limit,
             }
 
             response = requests.post(
@@ -325,31 +326,38 @@ def create_app():
             )
 
             if response.status_code == 200:
-                raw_results = response.json()
+                docs = response.json()
 
                 # Format the results
                 formatted_results = []
-                for hit in raw_results:
-                    metadata = hit.get("payload", {})
-                    formatted_result = {
-                        "id": hit.get("id"),
-                        "metadata": {
-                            "doc_id": metadata.get("doc_id"),
-                            "ticker": metadata.get("ticker"),
-                            "source": metadata.get("source"),
-                            "doc_type": metadata.get("doc_type"),
-                            "timestamp": metadata.get("timestamp"),
-                        },
-                        "chunks": metadata.get("chunks", []),
-                        "text_preview": metadata.get("text", "")[:100] + "..."
-                        if metadata.get("text")
-                        else None,
-                    }
-                    formatted_results.append(formatted_result)
+                # for hit in raw_results:
+                #     metadata = hit.get("payload", {})
+                #     formatted_result = {
+                #         "id": hit.get("id"),
+                #         "metadata": {
+                #             "doc_id": metadata.get("doc_id"),
+                #             "ticker": metadata.get("ticker"),
+                #             "source": metadata.get("source"),
+                #             "doc_type": metadata.get("doc_type"),
+                #             "timestamp": metadata.get("timestamp"),
+                #         },
+                #         "chunks": metadata.get("chunks", []),
+                #         "text_preview": metadata.get("text", "")[:100] + "..."
+                #         if metadata.get("text")
+                #         else None,
+                #     }
+                #     formatted_results.append(formatted_result)
 
                 # Log just the formatted results
-                logger.info("\nRESULTS")
-                logger.info(json.dumps(formatted_results, indent=2))
+                logger.info("=" * 80)
+                logger.info("RESULTS")
+                logger.info("=" * 80)
+
+                for doc in docs:
+                    doc.pop("vector")
+                    formatted_results.append(doc)
+                    logger.info(json.dumps(doc, indent=2))
+
                 logger.info("=" * 80)
 
                 return (
