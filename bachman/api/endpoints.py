@@ -15,7 +15,7 @@ from flask import Flask, request, jsonify
 
 # from langchain.schema import Document
 
-from bachman.processors.chunking import ChunkingConfig
+# from bachman.processors.chunking import ChunkingConfig
 
 # from bachman.processors.document_types import DocumentType
 from bachman.api.middleware import requires_api_key
@@ -161,8 +161,56 @@ def create_app():
             if not data:
                 return jsonify({"error": "No data provided"}), 400
 
+            metadata = data.get("metadata", {})
+            doc_type = metadata.get("doc_type", "unspecified_content")
+            skip_if_exists = data.get("skip_if_exists", True)
+            doc_id = metadata.get("doc_id")
+            collection_name = data.get("collection_name")
+
+            # Create new components instance for this request
             components = Components(qdrant_host=QDRANT_HOST)
             components.initialize_components()
+            components.vector_store.create_collection(collection_name=collection_name)
+
+            # Check if the document already exists in the collection
+            if skip_if_exists is True:
+                docs_ct = 0
+                response = requests.post(
+                    f"http://{components.qdrant_host}:8716/collections/{collection_name}/search",
+                    json={
+                        "query_vector": [0] * 1024,
+                        "filter": {
+                            "must": [
+                                {
+                                    "key": "metadata.doc_id",
+                                    "match": {"value": doc_id, "exact": True},
+                                }
+                            ]
+                        },
+                        "limit": 100,
+                    },
+                    timeout=10,
+                )
+                docs_ct = len(response.json())
+                print(f"docs_ct: {docs_ct}")
+
+                if docs_ct > 0:
+                    result = {
+                        "status": "skipped",
+                        "reason": "document already exists",
+                        "doc_id": doc_id,
+                    }
+                    logger.info("=" * 80)
+                    logger.info("RESULT")
+                    logger.info("=" * 80)
+                    spacer = " " * 57
+                    for k, v in result.items():
+                        print(f"{spacer} {k}: {v}")
+                    logger.info("=" * 80)
+                    return jsonify(result), 200
+
+            chunking_configs = components.load_chunking_config()
+            chunk_cfg = chunking_configs.get(doc_type)
 
             # Extract and validate collection name
             collection_name = data.get("collection_name")
@@ -174,26 +222,12 @@ def create_app():
             if not text:
                 return jsonify({"error": "No text provided"}), 400
 
-            # Extract chunking configuration if provided
-            chunking_config = None
-            if "chunking_config" in data:
-                try:
-                    chunking_config = ChunkingConfig(
-                        strategy=data["chunking_config"].get("strategy", "recursive"),
-                        chunk_size=data["chunking_config"].get("chunk_size", 4096),
-                        chunk_overlap=data["chunking_config"].get("chunk_overlap", 200),
-                        separators=data["chunking_config"].get("separators"),
-                        min_chunk_size=data["chunking_config"].get(
-                            "min_chunk_size", 100
-                        ),
-                    )
-                    logger.info(
-                        f"Using custom chunking configuration: {chunking_config}"
-                    )
-                except Exception as e:
-                    logger.warning(
-                        f"Invalid chunking configuration provided: {e}. Using defaults."
-                    )
+            # Get doc_type specific chunking config
+            doc_type = metadata.get("doc_type", "default")
+            chunking_config = components.get_chunking_config(doc_type)
+            logger.info(
+                f"Using chunking config for doc_type '{doc_type}': {chunking_config}"
+            )
 
             # Run the coroutine in the event loop
             result = asyncio.run(
@@ -202,7 +236,7 @@ def create_app():
                     collection_name=collection_name,
                     metadata=data.get("metadata"),
                     skip_if_exists=data.get("skip_if_exists", False),
-                    chunking_config=chunking_config,
+                    chunking_config=chunk_cfg,
                 )
             )
 
@@ -217,36 +251,78 @@ def create_app():
     def process_file():
         """Process a file and store its contents."""
         try:
-            # Create new components instance for this request
-            components = Components(qdrant_host=QDRANT_HOST)
-            components.initialize_components()
-
             data = request.get_json()
             # Extract required parameters
             file_path = data.get("file_path")
             collection_name = data.get("collection_name")
             metadata = data.get("metadata", {})
+            doc_type = metadata.get("doc_type", "unspecified_content")
             temp_dir = data.get("temp_dir")
             cleanup = data.get("cleanup", True)
+            skip_if_exists = data.get("skip_if_exists", True)
+            doc_id = metadata.get("doc_id")
+
+            print(f"This is the doc_id for reference: {doc_id}")
+
+            # Create new components instance for this request
+            components = Components(qdrant_host=QDRANT_HOST)
+            components.initialize_components()
+            components.vector_store.create_collection(collection_name=collection_name)
+
+            # Check if the document already exists in the collection
+            if skip_if_exists is True:
+                docs_ct = 0
+                response = requests.post(
+                    f"http://{components.qdrant_host}:8716/collections/{collection_name}/search",
+                    json={
+                        "query_vector": [0] * 1024,
+                        "filter": {
+                            "must": [
+                                {
+                                    "key": "metadata.doc_id",
+                                    "match": {"value": doc_id, "exact": True},
+                                }
+                            ]
+                        },
+                        "limit": 100,
+                    },
+                    timeout=10,
+                )
+                docs_ct = len(response.json())
+                print(f"printing docs_ct: {docs_ct}")
+
+                if docs_ct > 0:
+                    result = {
+                        "status": "skipped",
+                        "reason": "document already exists",
+                        "doc_id": doc_id,
+                    }
+                    logger.info("=" * 80)
+                    logger.info("RESULT")
+                    logger.info("=" * 80)
+                    spacer = " " * 57
+                    for k, v in result.items():
+                        print(f"{spacer} {k}: {v}")
+                    logger.info("=" * 80)
+                    return jsonify(result), 200
 
             if not file_path or not collection_name:
                 return jsonify({"error": "Missing required parameters"}), 400
 
             # Get doc_type specific chunking config
-            doc_type = metadata.get("doc_type", "default")
-            chunking_config = components.get_chunking_config(doc_type)
-            logger.info(
-                f"Using chunking config for doc_type '{doc_type}': {chunking_config}"
-            )
+            chunking_configs = components.load_chunking_config()
+            chunk_cfg = chunking_configs.get(doc_type)
+            logger.info(f"Using chunking config for doc_type '{doc_type}': {chunk_cfg}")
 
             result = asyncio.run(
                 components.file_processor.process_file(
                     file_path=file_path,
                     collection_name=collection_name,
                     metadata=metadata,
-                    chunking_config=chunking_config,
+                    chunking_config=chunk_cfg,
                     temp_dir=temp_dir,
                     cleanup=cleanup,
+                    skip_if_exists=skip_if_exists,
                 )
             )
 
@@ -309,6 +385,7 @@ def create_app():
             # Prepare filter conditions
             filter_conditions = []
             for key, value in metadata_filter.items():
+                key = f"metadata.{key}"
                 filter_conditions.append({"key": key, "match": {"value": value}})
 
             # Make the search request
@@ -382,10 +459,11 @@ def create_app():
     @app.route("/bachman/delete", methods=["PUT"])
     @requires_api_key
     def delete():
-        """Delete endpoint to remove either a specific point or an entire collection."""
+        """Delete endpoint to remove either specific points or an entire collection based on metadata."""
         try:
             # Create new components instance for this request
             components = Components(qdrant_host=QDRANT_HOST)
+            components.initialize_components()
 
             data = request.json
             if not data:
@@ -423,45 +501,75 @@ def create_app():
                     logger.error(error_msg)
                     return jsonify({"error": error_msg}), response.status_code
 
-            # If not deleting collection, we need a qdrant_id for point deletion
+            # If not deleting collection, we need either a qdrant_id or metadata
             qdrant_id = data.get("qdrant_id")
-            if not qdrant_id:
+            metadata = data.get("metadata")
+
+            if not qdrant_id and not metadata:
                 return (
                     jsonify(
                         {
-                            "error": "qdrant_id is required for point deletion. If you want to delete the entire collection, set confirm_coll_delete to true"
+                            "error": "Either qdrant_id or metadata is required for point deletion. "
+                            "If you want to delete the entire collection, set confirm_coll_delete to true"
                         }
                     ),
                     400,
                 )
 
             # Point deletion logic
-            delete_url = f"http://{components.vector_store.host}:8716/collections/{collection_name}/points"
-            delete_payload = {
-                "points": [
-                    {
-                        "id": qdrant_id,
-                        "vector": [0.0] * 1024,  # Required for PUT
-                        "_delete": True,
+            if qdrant_id:
+                # Single point deletion using PUT endpoint
+                delete_url = f"http://{components.qdrant_host}:8716/collections/{collection_name}/points"
+                delete_payload = {
+                    "points": [
+                        {
+                            "id": qdrant_id,
+                            "_delete": True,
+                        }
+                    ]
+                }
+                method = "PUT"
+            else:
+                # Metadata-based deletion using POST endpoint
+                delete_url = f"http://{components.qdrant_host}:8716/collections/{collection_name}/points/delete"
+                delete_payload = {
+                    "filter": {
+                        "must": [
+                            {"key": f"metadata.{key}", "match": {"value": value}}
+                            for key, value in metadata.items()
+                        ]
                     }
-                ]
-            }
+                }
+                method = "POST"
 
-            response = requests.put(
-                delete_url,
+            # Add debug logging
+            logger.info(f"Sending {method} request to: {delete_url}")
+            logger.info(f"With payload: {json.dumps(delete_payload, indent=2)}")
+
+            print(f"delete_payload: {delete_payload}")
+
+            response = requests.request(
+                method=method,
+                url=delete_url,
                 json=delete_payload,
                 headers={"Content-Type": "application/json"},
                 timeout=10,
             )
 
+            # Add response logging
+            logger.info(f"Response status: {response.status_code}")
+            logger.info(f"Response body: {response.text}")
+
             if response.status_code == 200:
-                logger.info(f"Successfully deleted point with Qdrant ID: {qdrant_id}")
+                logger.info("Successfully deleted points matching criteria")
                 return (
                     jsonify(
                         {
                             "status": "success",
-                            "message": f"Successfully deleted point {qdrant_id}",
-                            "deleted_id": qdrant_id,
+                            "message": "Successfully deleted matching points",
+                            "filter": metadata
+                            if metadata
+                            else {"qdrant_id": qdrant_id},
                         }
                     ),
                     200,

@@ -134,7 +134,7 @@ class VectorStore:
         logger.info("Successfully initialized Qdrant client")
         self.vectorstore = None
 
-    def _create_collection(self, collection_name: str) -> bool:
+    def create_collection(self, collection_name: str) -> bool:
         """Create a new collection using direct Qdrant client."""
         try:
             logger.info(
@@ -170,7 +170,7 @@ class VectorStore:
             logger.info(
                 f"Creating collection {self.collection_name} if it doesn't exist"
             )
-            self._create_collection(self.collection_name)
+            self.create_collection(self.collection_name)
 
             # Log CPU usage before vectorstore initialization
             cpu_percent = psutil.cpu_percent(interval=1)
@@ -243,7 +243,7 @@ class VectorStore:
             logger.info(
                 f"Creating collection {self.collection_name} if it doesn't exist"
             )
-            self._create_collection(self.collection_name)
+            self.create_collection(self.collection_name)
 
             qdrant_id = str(uuid.uuid4())
 
@@ -255,7 +255,7 @@ class VectorStore:
                 "text": text,
                 "doc_id": doc_id,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                **(metadata if metadata else {}),
+                "metadata": metadata if metadata else {},
             }
 
             point_data = {
@@ -488,10 +488,10 @@ class VectorStore:
                 f"\n=== Checking for doc_id: {doc_id} in collection: {collection_name} ==="
             )
 
-            # Ensure collection exists first
-            if not await self.ensure_collection_exists(collection_name):
-                print("Collection check/creation failed")
-                return False
+            # # Ensure collection exists first
+            # if not await self.ensure_collection_exists(collection_name):
+            #     print("Collection check/creation failed")
+            #     return False
 
             print("\nSearching for existing document...")
             matching_docs = await self.search_by_doc_id(collection_name, doc_id)

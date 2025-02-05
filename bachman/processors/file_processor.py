@@ -2,12 +2,13 @@
 
 import logging
 from typing import Optional, Dict, List
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import json
 from pathlib import Path
 import subprocess
-import uuid
+
+# import uuid
 import shutil
 import tabula
 import pymupdf
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 class ProcessingStatus:
     """Status tracking for document processing."""
 
-    def __init__(self, doc_id: str):
+    def __init__(self, doc_id: str, chunking_config: dict):
         self.doc_id = doc_id
         self.status = "pending"
         self.components = {
@@ -41,8 +42,16 @@ class ProcessingStatus:
             "tables": {"status": "pending", "pages": []},
             "metadata": {"status": "pending"},
         }
+        self.chunking_config = chunking_config
         self.errors = []
-        self.last_updated = datetime.utcnow().isoformat()
+        self.last_updated = datetime.now(timezone.utc).isoformat()
+        self.default_chunking_config = {
+            "strategy": "recursive",
+            "chunk_size": 1024,
+            "chunk_overlap": 100,
+            "separators": ["\n\n", "\n", ". ", " ", ""],
+            "min_chunk_size": 50,
+        }
 
     def to_dict(self) -> Dict:
         """Convert status to dictionary for storage."""
@@ -212,6 +221,7 @@ class FileProcessor:
         file_path: str,
         collection_name: str,
         metadata: dict = None,
+        skip_if_exists: bool = False,
         chunking_config: dict = None,
         temp_dir: Optional[str] = None,
         cleanup: bool = True,
@@ -220,7 +230,9 @@ class FileProcessor:
         try:
             self.logger.info("Processing file: %s", file_path)
             doc_type = metadata.get("doc_type", "default")
-            doc_id = metadata.get("doc_id", str(uuid.uuid4()))
+            doc_id = metadata.get("doc_id")
+            config = chunking_config or self.default_chunking_config
+            metadata["collection_name"] = collection_name
 
             # Setup temporary file paths
             temp_files = {}
@@ -300,8 +312,8 @@ class FileProcessor:
 
             # Process text chunks
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=chunking_config.get("chunk_size", 512),
-                chunk_overlap=chunking_config.get("chunk_overlap", 50),
+                chunk_size=config.get("chunk_size"),
+                chunk_overlap=config.get("chunk_overlap"),
             )
             text_chunks = text_splitter.split_text("\n".join(full_text))
 

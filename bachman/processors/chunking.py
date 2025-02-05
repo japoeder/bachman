@@ -6,10 +6,11 @@ is split into chunks for processing, with optimized defaults for different model
 """
 
 from enum import Enum
-from typing import Optional, List
+
+# from typing import Optional, List
 import logging
 import json
-from pydantic import BaseModel, Field
+from pydantic import BaseModel  # , Field
 
 logger = logging.getLogger(__name__)
 
@@ -40,27 +41,6 @@ class ChunkingConfig(BaseModel):
         separators: Separators to use for recursive splitting
         min_chunk_size: Minimum size of each chunk in tokens
     """
-
-    strategy: ChunkingStrategy = Field(
-        default=ChunkingStrategy.RECURSIVE,
-        description="Strategy to use for chunking text",
-    )
-    chunk_size: int = Field(
-        default=4096,  # ~1/8 of Groq's context window
-        description="Maximum size of each chunk in tokens",
-    )
-    chunk_overlap: int = Field(
-        default=200,  # Reasonable overlap for context preservation
-        description="Number of overlapping tokens between chunks",
-    )
-    separators: Optional[List[str]] = Field(
-        default=["\\n\\n", "\\n", "\\. ", " ", ""],
-        description="Separators to use for recursive splitting, in order of preference",
-    )
-    min_chunk_size: Optional[int] = Field(
-        default=100,  # Minimum chunk size to avoid too small segments
-        description="Minimum size of each chunk in tokens",
-    )
 
 
 def get_chunking_config(config_store: dict, doc_type: str) -> dict:

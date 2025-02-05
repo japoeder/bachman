@@ -5,9 +5,12 @@ Text processing module for handling text content.
 import hashlib
 from typing import Optional, List, Dict
 import logging
+import uuid
+
+# import requests
 
 # import datetime
-import uuid
+
 
 # from datetime import UTC
 from langchain.text_splitter import (
@@ -99,19 +102,9 @@ class TextProcessor:
             config = chunking_config or self.default_chunking_config
             self.logger.info(f"Processing text with chunking config: {config}")
             self.vector_store.collection_name = collection_name
-
             # Generate a unique ID for the document
             doc_id = metadata.get("doc_id") if metadata else None
-
-            # Check if the document already exists in the collection
-            if skip_if_exists and doc_id:
-                exists = await self.vector_store.text_exists(collection_name, doc_id)
-                if exists:
-                    return {
-                        "status": "skipped",
-                        "reason": "document already exists",
-                        "doc_id": doc_id,
-                    }
+            metadata["collection_name"] = collection_name
 
             # Create text splitter based on config
             text_splitter = RecursiveCharacterTextSplitter(
