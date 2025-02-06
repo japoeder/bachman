@@ -377,16 +377,28 @@ def create_app():
             if not collection_name:
                 return jsonify({"error": "collection_name is required"}), 400
 
-            # Get query parameters
-            metadata_filter = data.get("metadata", {})
-            if not metadata_filter:
-                return jsonify({"error": "Query metadata is required"}), 400
+            # Get qdrant_id if it exists
+            qdrant_id = data.get("qdrant_id")
+            # print(f"qdrant_id: {qdrant_id}")
 
             # Prepare filter conditions
-            filter_conditions = []
-            for key, value in metadata_filter.items():
-                key = f"metadata.{key}"
-                filter_conditions.append({"key": key, "match": {"value": value}})
+            if qdrant_id:
+                filter_conditions = [
+                    {"key": "qdrant_id", "match": {"value": qdrant_id}}
+                ]
+                # print(f"filter_conditions: {filter_conditions}")
+            else:
+                # Get query parameters
+                metadata_filter = data.get("metadata", {})
+                if not metadata_filter:
+                    return jsonify({"error": "Query metadata is required"}), 400
+
+                filter_conditions = []
+                for key, value in metadata_filter.items():
+                    key = f"metadata.{key}"
+                    filter_conditions.append({"key": key, "match": {"value": value}})
+
+            # print(f"filter_conditions: {filter_conditions}")
 
             # Make the search request
             search_url = f"http://{components.vector_store.host}:8716/collections/{collection_name}/search"
@@ -404,6 +416,7 @@ def create_app():
 
             if response.status_code == 200:
                 docs = response.json()
+                # print(f"docs: {docs}")
 
                 # Format the results
                 formatted_results = []
@@ -430,10 +443,16 @@ def create_app():
                 logger.info("RESULTS")
                 logger.info("=" * 80)
 
-                for doc in docs:
-                    doc.pop("vector")
-                    formatted_results.append(doc)
-                    logger.info(json.dumps(doc, indent=2))
+                if qdrant_id:
+                    for point in docs["points"]:
+                        point.pop("vector")
+                        formatted_results.append(point)
+                        logger.info(json.dumps(point, indent=2))
+                else:
+                    for doc in docs:
+                        doc.pop("vector")
+                        formatted_results.append(doc)
+                        logger.info(json.dumps(doc, indent=2))
 
                 logger.info("=" * 80)
 
