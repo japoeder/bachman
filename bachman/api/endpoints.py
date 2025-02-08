@@ -7,7 +7,7 @@ import asyncio
 import json
 
 # import uuid
-from datetime import datetime
+# from datetime import datetime
 import requests
 
 # import os
@@ -18,10 +18,12 @@ from flask import Flask, request, jsonify
 # from bachman.processors.chunking import ChunkingConfig
 
 # from bachman.processors.document_types import DocumentType
+from bachman.processors.analysis_processor import AnalysisProcessor
 from bachman.api.middleware import requires_api_key
 from bachman.core.components import Components
-from bachman.utils.format_results import format_analysis_results
-from bachman.config.prompt_config import prompt_config
+
+# from bachman.utils.format_results import format_analysis_results
+# from bachman.config.prompt_config import prompt_config
 from bachman.config.app_config import (
     QDRANT_HOST,
     # CHUNKING_CONFIGS,
@@ -47,106 +49,64 @@ def create_app():
 
             # Extract required parameters
             collection_name = data.get("collection_name")
-            qdrant_id = data.get("id")
+            metadata = data.get("metadata")
+            doc_id = metadata.get("doc_id")
+            inf_specs = data.get("inference")
+            inference_type = inf_specs.get("i_type")
+            entity_type = inf_specs.get("e_type")
+            inference_model = inf_specs.get("model")
+            inference_provider = inf_specs.get("provider", "groq")
 
-            if not collection_name or not qdrant_id:
-                return jsonify({"error": "collection_name and id are required"}), 400
+            # Create new components instance for this request
+            components = Components(qdrant_host=QDRANT_HOST)
+            components.initialize_components()
+            components.vector_store.create_collection(collection_name=collection_name)
+
+            embedding_configs = components.load_embedding_config()
+            emb_cfg = embedding_configs[inference_provider]["models"][inference_model]
+
+            if not collection_name or not doc_id:
+                return (
+                    jsonify({"error": "collection_name and doc_id are required"}),
+                    400,
+                )
 
             logger.info(
-                f"Analyzing document with Qdrant ID {qdrant_id} from collection {collection_name}"
+                f"Analyzing document with ID {doc_id} from collection {collection_name}"
             )
 
-            if not Components.vector_store:
-                return jsonify({"error": "Vector store not initialized"}), 500
+            # Initialize analysis processor
+            analysis_processor = AnalysisProcessor(components.vector_store)
 
-            try:
-                # First, get the main document metadata using scroll
-                main_doc_response = Components.vector_store.client.scroll(
-                    collection_name=collection_name,
-                    scroll_filter={
-                        "must": [{"key": "id", "match": {"value": qdrant_id}}]
-                    },
-                    with_payload=True,
-                    limit=1,
-                )
+            # Process document and generate prompt
+            analysis_data = analysis_processor.prepare_analysis(
+                doc_id=doc_id,
+                collection_name=collection_name,
+                llm_context_window=emb_cfg.get("context_window", 8000),
+                inference_type=inference_type,
+                entity_type=entity_type,
+            )
 
-                if not main_doc_response[0]:
-                    return (
-                        jsonify(
-                            {
-                                "error": f"Document not found in collection {collection_name}"
-                            }
-                        ),
-                        404,
-                    )
+            if not analysis_data:
+                return jsonify({"error": "Document not found"}), 404
 
-                document = main_doc_response[0][0].payload
-                doc_type = document.get("doc_type")
-
-                # Get all related chunks using parent_id
-                chunks_response = Components.vector_store.client.scroll(
-                    collection_name=collection_name,
-                    scroll_filter={
-                        "must": [{"key": "parent_id", "match": {"value": qdrant_id}}]
-                    },
-                    with_payload=True,
-                    limit=100,  # Adjust based on your needs
-                )
-
-                # Combine relevant sections for analysis
-                chunks_text = []
-                for chunk in chunks_response[0]:
-                    chunks_text.append(chunk.payload.get("text", ""))
-
-                # Create financial report analysis prompt
-                analysis_prompt = prompt_config(
-                    doc_type=doc_type or "financial_report",
-                    ticker=document.get("ticker", "Unknown"),
-                    chunks_text=" ".join(chunks_text[:5]),
-                )
-
-                # Get analysis from Groq
-                analysis_result = Components.sentiment_analyzer.llm(analysis_prompt)
-
-                # Parse the JSON response
-                try:
-                    parsed_result = json.loads(analysis_result)
-                except json.JSONDecodeError:
-                    logger.error("Failed to parse LLM response as JSON")
-                    parsed_result = {
-                        "dominant_sentiment": "UNKNOWN",
-                        "confidence_level": "0",
-                        "time_horizon": "UNKNOWN",
-                        "trading_signal": "UNKNOWN",
-                        "key_themes": ["Failed to parse analysis"],
-                    }
-
-                # Structure the response
-                response = {
-                    "analysis": parsed_result,
-                    "metadata": {
-                        "doc_id": qdrant_id,
+            results = jsonify(
+                {
+                    "status": "success",
+                    "preview": {
+                        "text_sample": analysis_data["content"][:1000],
+                        "doc_type": analysis_data["metadata"]["doc_type"],
+                        "ticker": analysis_data["metadata"]["ticker"],
+                        "prompt": analysis_data["preview_prompt"],
                         "collection": collection_name,
-                        "doc_type": doc_type,
-                        "ticker": document.get("ticker"),
-                        "type": "sentiment",
-                        "timestamp": datetime.utcnow().isoformat(),
-                        "chunks_analyzed": len(chunks_text),
                     },
                 }
+            )
 
-                # Format the results for logging
-                format_analysis_results(
-                    analysis_type="sentiment",
-                    result=parsed_result,
-                    metadata=response["metadata"],
-                )
+            logger.info(f"Analysis data: {json.dumps(analysis_data, indent=2)}")
 
-                return jsonify(response), 200
-
-            except Exception as e:
-                logger.error(f"Error performing analysis: {str(e)}")
-                return jsonify({"error": f"Error performing analysis: {str(e)}"}), 500
+            # For now, just return the preview
+            return results, 200
 
         except Exception as e:
             logger.error(f"Error processing analysis request: {str(e)}")
