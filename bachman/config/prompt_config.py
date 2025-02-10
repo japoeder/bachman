@@ -21,7 +21,7 @@ def prompt_config(
                         Please analyze the following document sections and provide a comprehensive analysis.
 
                         Document Type: {doc_type}
-                        Company: {ticker}
+                        Ticker: {ticker}
                         
                         Document Sections:
                         {chunks_text}
@@ -56,7 +56,7 @@ def prompt_config(
                             }}
                         }}
 
-                        Ensure your response is valid JSON and includes all the fields specified above.
+                        Ensure your response is valid JSON and includes all the fields specified above for the aforementioned ticker.
                         """
             elif doc_type == "news_article":
                 prompt = f"""You are a financial analyst tasked with analyzing a {doc_type}. 
@@ -66,10 +66,27 @@ def prompt_config(
                         confidence level for the recommendation.
 
                         Document Type: {doc_type}
-                        Company: {ticker}
+                        Ticker: {ticker}
 
-                        Article Content:
+                        Content:
                         {chunks_text}
+
+                        Provide your analysis in the following JSON format:
+                        {{
+                            "dominant_sentiment": "POSITIVE/NEGATIVE/NEUTRAL",
+                            "confidence_level": "1-10",
+                            "trading_signal": "BUY/HOLD/SELL",
+                            "key_themes": [
+                                "List of key themes identified",
+                                "Each as a separate string"
+                            ],
+                            "supporting_evidence": {{
+                                "key_quotes": ["relevant quote 1", "relevant quote 2"],
+                                "market_impact": "brief description"
+                            }}
+                        }}                        
+
+                        Ensure your response is valid JSON and includes all the fields specified above for the aforementioned ticker.
                         """
             elif doc_type == "reddit_content":
                 prompt = f"""You are a financial analyst tasked with analyzing {doc_type} for investing. 
@@ -79,9 +96,26 @@ def prompt_config(
                         confidence level for the recommendation.
 
                         Document Type: {doc_type}
-                        Company: {ticker}
+                        Ticker: {ticker}
 
                         Comment or Post Content:
                         {chunks_text}
+
+                        Provide your analysis in the following JSON format:
+                        {{
+                            "dominant_sentiment": "POSITIVE/NEGATIVE/NEUTRAL",
+                            "confidence_level": "1-10",
+                            "trading_signal": "BUY/HOLD/SELL",
+                            "key_themes": [
+                                "List of key themes identified",
+                                "Each as a separate string"
+                            ],
+                            "supporting_evidence": {{
+                                "key_quotes": ["relevant quote 1", "relevant quote 2"],
+                                "market_impact": "brief description"
+                            }}
+                        }}
+
+                        Ensure your response is valid JSON and includes all the fields specified above for the aforementioned ticker.
                         """
     return prompt

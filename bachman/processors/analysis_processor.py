@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
 from bachman.config.prompt_config import prompt_config
+from bachman.models.llm import get_groq_llm
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,8 @@ class AnalysisProcessor:
         llm_context_window: int = 8000,
         inference_type: str = None,
         entity_type: str = None,
+        inference_model: str = None,
+        inference_provider: str = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Prepare document for analysis by reconstructing content and generating prompt.
@@ -59,7 +62,7 @@ class AnalysisProcessor:
                 return None
 
             # First element contains the points
-            llm_context_window = 2000
+            llm_context_window = 4000
             docs = docs_response[0]
             metadata = docs[0].payload["metadata"].copy()
             metadata.pop("chunk_index")
@@ -84,6 +87,12 @@ class AnalysisProcessor:
             start_chunk = 0
             end_chunk = 0
             total_chunks = len(docs)
+            chunk_set_index = 0
+            llm_response_structure = {}
+            llm_response_structure["doc_type"] = doc_type
+            llm_response_structure["metadata"] = metadata
+            llm_response_structure["collection_name"] = collection_name
+            llm_response_structure["chunk_set"] = {}
             while start_chunk < total_chunks:
                 if doc_type == "financial_document":
                     recon_src_content, end_chunk = self._reconstruct_financial_document(
@@ -110,8 +119,6 @@ class AnalysisProcessor:
                 # For preview purposes, just show first segment
                 content = recon_src_content.content
 
-                # Todo: content should match limit of groq context window
-                # Todo: need looping logic for content that exceeds groq context window
                 # Generate prompt for preview
                 analysis_prompt = prompt_config(
                     doc_type=doc_type,
@@ -121,16 +128,38 @@ class AnalysisProcessor:
                     inference_type=inference_type,
                 )
 
-                print(analysis_prompt)
-                start_chunk = end_chunk + 1
+                llm_response_structure["chunk_set"][chunk_set_index] = {}
+                llm_response_structure["chunk_set"][chunk_set_index][
+                    "chunk_begin"
+                ] = start_chunk
+                llm_response_structure["chunk_set"][chunk_set_index][
+                    "chunk_end"
+                ] = end_chunk
+                llm_response_structure["chunk_set"][chunk_set_index][
+                    "prompt"
+                ] = analysis_prompt
 
-            return {
-                "content": content,
-                "preview_prompt": analysis_prompt,
-                "total_chunks": metadata["total_chunks"],
-                "collection_name": collection_name,
-                "metadata": metadata,
-            }
+                # Make LLM request here
+                logger.info(f"Generated prompt for doc_id {doc_id}:")
+                logger.info(analysis_prompt)
+
+                # Use the Groq client from llm.py
+                groq_client = get_groq_llm()
+                response = groq_client.invoke(
+                    messages=[{"role": "user", "content": analysis_prompt}],
+                    model=inference_model,
+                )
+                response_content = response.content
+                llm_response_structure["chunk_set"][chunk_set_index][
+                    "response"
+                ] = response_content
+                # Log response for debugging
+                logger.info(f"Groq API response: {response_content}")
+
+                start_chunk = end_chunk + 1
+                chunk_set_index += 1
+
+            return llm_response_structure
 
         except Exception as e:
             logger.error(f"Error preparing analysis: {str(e)}")

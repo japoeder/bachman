@@ -79,34 +79,21 @@ def create_app():
             analysis_processor = AnalysisProcessor(components.vector_store)
 
             # Process document and generate prompt
-            analysis_data = analysis_processor.prepare_analysis(
+            response_list = analysis_processor.prepare_analysis(
                 doc_id=doc_id,
                 collection_name=collection_name,
                 llm_context_window=emb_cfg.get("context_window", 8000),
                 inference_type=inference_type,
                 entity_type=entity_type,
+                inference_model=inference_model,
+                inference_provider=inference_provider,
             )
 
-            if not analysis_data:
+            if not response_list:
                 return jsonify({"error": "Document not found"}), 404
 
-            results = jsonify(
-                {
-                    "status": "success",
-                    "preview": {
-                        "text_sample": analysis_data["content"][:1000],
-                        "doc_type": analysis_data["metadata"]["doc_type"],
-                        "ticker": analysis_data["metadata"]["ticker"],
-                        "prompt": analysis_data["preview_prompt"],
-                        "collection": collection_name,
-                    },
-                }
-            )
-
-            logger.info(f"Analysis data: {json.dumps(analysis_data, indent=2)}")
-
             # For now, just return the preview
-            return results, 200
+            return response_list, 200
 
         except Exception as e:
             logger.error(f"Error processing analysis request: {str(e)}")

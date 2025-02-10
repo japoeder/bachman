@@ -60,12 +60,13 @@ def get_groq_llm():
         # Initialize Groq client
         client = Groq(api_key=api_key)
 
-        def invoke(messages):
+        def invoke(messages, model="llama3-70b-8192"):
             response = client.chat.completions.create(
                 messages=messages,
-                model="llama-3.3-70b-versatile",
+                model=model,
                 temperature=0.7,
-                max_tokens=1024,
+                max_tokens=2000,
+                response_format={"type": "json_object"},
             )
             return response.choices[0].message
 
