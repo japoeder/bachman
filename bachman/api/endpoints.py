@@ -569,7 +569,7 @@ def create_app():
             logger.error(f"Error processing delete request: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
-    @app.route("/bachman/vllm/start", methods=["POST"])
+    @app.route("/bachman/start_vllm", methods=["POST"])
     @requires_api_key
     def start_vllm():
         """Start the vLLM server"""
@@ -615,7 +615,7 @@ def create_app():
             logger.error(f"Error starting vLLM server: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
-    @app.route("/bachman/vllm/stop", methods=["POST"])
+    @app.route("/bachman/stop_vllm", methods=["POST"])
     @requires_api_key
     def stop_vllm():
         """Stop the vLLM server"""
