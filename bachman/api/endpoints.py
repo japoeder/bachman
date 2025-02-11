@@ -570,7 +570,7 @@ def create_app():
             logger.error(f"Error processing delete request: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
-    @app.route("/bachman/start_vllm", methods=["POST"])
+    @app.route("/bachman/manage_vllm", methods=["POST"])
     @requires_api_key
     def manage_vllm():
         try:
