@@ -573,6 +573,7 @@ def create_app():
     @requires_api_key
     def start_vllm():
         """Start the vLLM server"""
+        print("Starting vLLM server...")
         global vllm_process
         try:
             if vllm_process and vllm_process.poll() is None:
