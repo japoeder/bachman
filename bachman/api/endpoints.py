@@ -5,6 +5,11 @@ This module defines the endpoints for the Bachman API.
 import logging
 import asyncio
 import json
+import subprocess
+import psutil
+
+# import os
+# import signal
 
 # import uuid
 # from datetime import datetime
@@ -12,7 +17,8 @@ import requests
 
 # import os
 from flask import Flask, request, jsonify
-from vllm import AsyncLLMEngine, AsyncEngineArgs, SamplingParams
+
+# from vllm import AsyncLLMEngine, AsyncEngineArgs, SamplingParams
 
 # from langchain.schema import Document
 
@@ -37,46 +43,8 @@ from bachman.config.app_config import (
 
 logger = logging.getLogger(__name__)
 
-# Global engine instance
-llm_engine = None
-
-
-def run_async(coro):
-    """Helper function to run async code in sync context"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
-
-
-async def init_llm():
-    """Initialize the LLM engine"""
-    # Configure the engine arguments
-    engine_args = AsyncEngineArgs(
-        model="deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
-        quantization="bitsandbytes",
-        load_format="bitsandbytes",
-        max_model_len=2048,
-        max_num_batched_tokens=2048,
-        gpu_memory_utilization=0.95,
-        max_num_seqs=32,
-        trust_remote_code=True,
-        tensor_parallel_size=1,
-    )
-
-    # Initialize the engine
-    engine = await AsyncLLMEngine.from_engine_args(engine_args)
-    return engine
-
-
-def get_llm_engine():
-    """Synchronous wrapper to get or initialize the LLM engine"""
-    global llm_engine
-    if llm_engine is None:
-        llm_engine = run_async(init_llm())
-    return llm_engine
+# Global variable to store the vLLM process
+vllm_process = None
 
 
 def create_app():
@@ -601,46 +569,109 @@ def create_app():
             logger.error(f"Error processing delete request: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
-    @app.route("/bachman/run_llm", methods=["POST"])
+    @app.route("/bachman/vllm/start", methods=["POST"])
     @requires_api_key
-    def run_llm():
+    def start_vllm():
+        """Start the vLLM server"""
+        global vllm_process
         try:
-            # Get the engine synchronously
-            engine = get_llm_engine()
+            if vllm_process and vllm_process.poll() is None:
+                return jsonify({"message": "vLLM server is already running"}), 400
 
-            # Get input from request
-            data = request.json
-            prompt = data.get("prompt", "")
+            # Construct the command
+            cmd = [
+                "vllm",
+                "serve",
+                "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+                "--quantization",
+                "bitsandbytes",
+                "--load-format",
+                "bitsandbytes",
+                "--max-model-len",
+                "2048",
+                "--max-num-batched-tokens",
+                "2048",
+                "--gpu-memory-utilization",
+                "0.95",
+                "--max-num-seqs",
+                "32",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8000",
+            ]
 
-            # Generate response
-            sampling_params = SamplingParams(
-                temperature=0.7, top_p=0.95, max_tokens=256
+            # Start the vLLM server
+            vllm_process = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
             )
 
-            # Run the async generate in a sync context
-            responses = run_async(engine.generate(prompt, sampling_params))
-            response = responses[0]  # Get the first response
-
             return (
-                jsonify(
-                    {"generated_text": response.outputs[0].text, "status": "success"}
-                ),
+                jsonify({"message": "vLLM server started", "pid": vllm_process.pid}),
                 200,
             )
 
         except Exception as e:
-            logger.error(f"Error in LLM processing: {str(e)}")
+            logger.error(f"Error starting vLLM server: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
-    @app.route("/bachman/status/<task_id>", methods=["GET"])
+    @app.route("/bachman/vllm/stop", methods=["POST"])
     @requires_api_key
-    def get_task_status(task_id):
-        """Get the status of a document processing task."""
+    def stop_vllm():
+        """Stop the vLLM server"""
+        global vllm_process
         try:
-            status = run_async(Components.task_tracker.get_status(task_id))
-            return jsonify(status), 200
+            if not vllm_process:
+                return jsonify({"message": "vLLM server is not running"}), 400
+
+            # Get the process group
+            try:
+                parent = psutil.Process(vllm_process.pid)
+                children = parent.children(recursive=True)
+
+                # Stop children first
+                for child in children:
+                    child.terminate()
+
+                # Stop parent
+                parent.terminate()
+
+                # Wait for processes to terminate
+                gone, alive = psutil.wait_procs([parent] + children, timeout=3)
+                print(f"gone: {gone}")
+                print(f"alive: {alive}")
+
+                # Force kill if still alive
+                for p in alive:
+                    p.kill()
+
+            except psutil.NoSuchProcess:
+                pass  # Process already terminated
+
+            vllm_process = None
+            return jsonify({"message": "vLLM server stopped"}), 200
+
         except Exception as e:
-            logger.error(f"Error retrieving task status: {str(e)}")
+            logger.error(f"Error stopping vLLM server: {str(e)}")
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/bachman/vllm/status", methods=["GET"])
+    @requires_api_key
+    def vllm_status():
+        """Check the status of the vLLM server"""
+        global vllm_process
+        try:
+            if not vllm_process:
+                return jsonify({"status": "stopped"}), 200
+
+            if vllm_process.poll() is None:
+                return jsonify({"status": "running", "pid": vllm_process.pid}), 200
+            else:
+                vllm_process = None
+                return jsonify({"status": "stopped"}), 200
+
+        except Exception as e:
+            logger.error(f"Error checking vLLM status: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
     return app
