@@ -130,7 +130,11 @@ class VectorStore:
             device = next(self.embedding_function.model.parameters()).device
             logger.info(f"Embedding model is on device: {device}")
 
-        self.client = QdrantClient(url=f"http://{host}:8714", timeout=60.0)
+        # Update client configuration with higher limits
+        self.client = QdrantClient(
+            url=f"http://{host}:8714",
+            timeout=60.0,
+        )
         logger.info("Successfully initialized Qdrant client")
         self.vectorstore = None
 

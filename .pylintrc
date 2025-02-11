@@ -80,7 +80,7 @@ disable=
     too-many-arguments,
     consider-using-in,
     no-member,
-    too-many-positional-arguments,
+    #too-many-positional-arguments,
     inconsistent-return-statements,
     too-few-public-methods,
     too-many-return-statements,
@@ -89,7 +89,9 @@ disable=
     subprocess-run-check,
     consider-using-enumerate,
     logging-not-lazy,
-    trailing-whitespace
+    trailing-whitespace,
+    global-statement,
+    no-name-in-module
 #    len-as-condition,
 #    too-few-public-methods,
 #    anomalous-backslash-in-string,

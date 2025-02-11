@@ -16,7 +16,7 @@ def prompt_config(
     prompt = ""
     if inference_type == "sentiment":
         if entity_type == "org":
-            if doc_type == "financial_report":
+            if doc_type == "financial_document":
                 prompt = f"""You are a financial analyst tasked with analyzing a {doc_type}. 
                         Please analyze the following document sections and provide a comprehensive analysis.
 
@@ -59,14 +59,12 @@ def prompt_config(
                         Ensure your response is valid JSON and includes all the fields specified above for the aforementioned ticker.
                         """
             elif doc_type == "news_article":
-                prompt = f"""You are a financial analyst tasked with analyzing a {doc_type}. 
+                prompt = f"""You are a financial analyst tasked with analyzing a {doc_type} for {ticker}. 
                         Please analyze the following article content and provide a sentiment analysis.
                         The goal is to rate the sentiment of the article as positive, negative, or neutral and
-                        provide a buy, sell, or hold recommendation based on the sentiment.  You can also provide
-                        confidence level for the recommendation.
-
-                        Document Type: {doc_type}
-                        Ticker: {ticker}
+                        provide a buy, sell, or hold recommendation based on the sentiment.  Both should correspond
+                        to the specific ticker mentioned above.  You can also provide confidence level for the 
+                        recommendation.
 
                         Content:
                         {chunks_text}
@@ -89,14 +87,12 @@ def prompt_config(
                         Ensure your response is valid JSON and includes all the fields specified above for the aforementioned ticker.
                         """
             elif doc_type == "reddit_content":
-                prompt = f"""You are a financial analyst tasked with analyzing {doc_type} for investing. 
-                        Please analyze the following comment or post content and provide a sentiment analysis.
+                prompt = f"""You are a financial analyst tasked with analyzing a {doc_type} for {ticker}. 
+                        Please analyze the following article content and provide a sentiment analysis.
                         The goal is to rate the sentiment of the article as positive, negative, or neutral and
-                        provide a buy, sell, or hold recommendation based on the sentiment.  You can also provide
-                        confidence level for the recommendation.
-
-                        Document Type: {doc_type}
-                        Ticker: {ticker}
+                        provide a buy, sell, or hold recommendation based on the sentiment.  Both should correspond
+                        to the specific ticker mentioned above.  You can also provide confidence level for the 
+                        recommendation.
 
                         Comment or Post Content:
                         {chunks_text}

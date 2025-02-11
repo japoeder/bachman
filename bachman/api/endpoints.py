@@ -12,6 +12,7 @@ import requests
 
 # import os
 from flask import Flask, request, jsonify
+from vllm import AsyncLLMEngine, AsyncEngineArgs, SamplingParams
 
 # from langchain.schema import Document
 
@@ -31,7 +32,51 @@ from bachman.config.app_config import (
     # COLLECTION_CONFIGS,
 )
 
+
+# from functools import partial
+
 logger = logging.getLogger(__name__)
+
+# Global engine instance
+llm_engine = None
+
+
+def run_async(coro):
+    """Helper function to run async code in sync context"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+async def init_llm():
+    """Initialize the LLM engine"""
+    # Configure the engine arguments
+    engine_args = AsyncEngineArgs(
+        model="deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+        quantization="bitsandbytes",
+        load_format="bitsandbytes",
+        max_model_len=2048,
+        max_num_batched_tokens=2048,
+        gpu_memory_utilization=0.95,
+        max_num_seqs=32,
+        trust_remote_code=True,
+        tensor_parallel_size=1,
+    )
+
+    # Initialize the engine
+    engine = await AsyncLLMEngine.from_engine_args(engine_args)
+    return engine
+
+
+def get_llm_engine():
+    """Synchronous wrapper to get or initialize the LLM engine"""
+    global llm_engine
+    if llm_engine is None:
+        llm_engine = run_async(init_llm())
+    return llm_engine
 
 
 def create_app():
@@ -65,6 +110,12 @@ def create_app():
             embedding_configs = components.load_embedding_config()
             emb_cfg = embedding_configs[inference_provider]["models"][inference_model]
 
+            chunking_configs = components.load_chunking_config()
+            paginated_doctypes = []
+            for cf in chunking_configs:
+                if chunking_configs[cf]["paginated"]:
+                    paginated_doctypes.append(cf)
+
             if not collection_name or not doc_id:
                 return (
                     jsonify({"error": "collection_name and doc_id are required"}),
@@ -87,6 +138,7 @@ def create_app():
                 entity_type=entity_type,
                 inference_model=inference_model,
                 inference_provider=inference_provider,
+                paginated_doctypes=paginated_doctypes,
             )
 
             if not response_list:
@@ -549,12 +601,43 @@ def create_app():
             logger.error(f"Error processing delete request: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
+    @app.route("/bachman/run_llm", methods=["POST"])
+    @requires_api_key
+    def run_llm():
+        try:
+            # Get the engine synchronously
+            engine = get_llm_engine()
+
+            # Get input from request
+            data = request.json
+            prompt = data.get("prompt", "")
+
+            # Generate response
+            sampling_params = SamplingParams(
+                temperature=0.7, top_p=0.95, max_tokens=256
+            )
+
+            # Run the async generate in a sync context
+            responses = run_async(engine.generate(prompt, sampling_params))
+            response = responses[0]  # Get the first response
+
+            return (
+                jsonify(
+                    {"generated_text": response.outputs[0].text, "status": "success"}
+                ),
+                200,
+            )
+
+        except Exception as e:
+            logger.error(f"Error in LLM processing: {str(e)}")
+            return jsonify({"error": str(e)}), 500
+
     @app.route("/bachman/status/<task_id>", methods=["GET"])
     @requires_api_key
-    async def get_task_status(task_id):
+    def get_task_status(task_id):
         """Get the status of a document processing task."""
         try:
-            status = await Components.task_tracker.get_status(task_id)
+            status = run_async(Components.task_tracker.get_status(task_id))
             return jsonify(status), 200
         except Exception as e:
             logger.error(f"Error retrieving task status: {str(e)}")

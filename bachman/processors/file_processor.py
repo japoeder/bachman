@@ -114,7 +114,7 @@ class FileProcessor:
             )
             return False
 
-    def read_pdf(self, file_path: str) -> tuple[str, int]:
+    def read_pdf(self, file_path: str):
         """Read text content from a PDF file and return text and word count."""
         try:
             with open(file_path, "rb") as file:
@@ -252,15 +252,22 @@ class FileProcessor:
             documents = []
             all_tables = []
             full_text = []
+            page_boundaries = []  # Track where each page starts
 
             with open(file_path, "rb") as file:
                 pdf_reader = PyPDF2.PdfReader(file)
+                current_position = 0
 
                 for page_num in range(len(pdf_reader.pages)):
                     # Extract text
                     page = pdf_reader.pages[page_num]
                     text = page.extract_text()
                     full_text.append(text)
+                    # Track page boundary
+                    page_boundaries.append(
+                        {"start": current_position, "text": text, "page": page_num + 1}
+                    )
+                    current_position += len(text)
 
                     # Extract tables if Java is available
                     if self.has_java:
@@ -310,12 +317,14 @@ class FileProcessor:
                     json.dump(all_tables, f, indent=2)
                 self.logger.info(f"Saved tables to: {temp_files['tables']}")
 
-            # Process text chunks
+            # Process text chunks with page tracking
             text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=config.get("chunk_size"),
                 chunk_overlap=config.get("chunk_overlap"),
             )
-            text_chunks = text_splitter.split_text("\n".join(full_text))
+
+            combined_text = "\n".join(full_text)
+            text_chunks = text_splitter.split_text(combined_text)
 
             # Save chunks if temp_dir provided
             if temp_dir:
@@ -323,8 +332,18 @@ class FileProcessor:
                     json.dump(text_chunks, f, indent=2)
                 self.logger.info(f"Saved chunks to: {temp_files['chunks']}")
 
-            # Create documents from text chunks
+            # Find page number for each chunk
             for i, chunk in enumerate(text_chunks):
+                chunk_start = combined_text.index(chunk)
+                chunk_page = 1  # default to first page
+
+                # Find which page this chunk starts on
+                for boundary in page_boundaries:
+                    if chunk_start >= boundary["start"]:
+                        chunk_page = boundary["page"]
+                    else:
+                        break
+
                 documents.append(
                     Document(
                         page_content=chunk,
@@ -335,6 +354,7 @@ class FileProcessor:
                             "content_type": "text",
                             "chunk_index": i,
                             "total_chunks": len(text_chunks),
+                            "page": chunk_page,  # Add page number to metadata
                             **metadata,
                         },
                     )
