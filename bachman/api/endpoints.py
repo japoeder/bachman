@@ -6,7 +6,8 @@ import logging
 import asyncio
 import json
 import subprocess
-import psutil
+
+# import psutil
 
 # import os
 # import signal
@@ -571,92 +572,53 @@ def create_app():
 
     @app.route("/bachman/start_vllm", methods=["POST"])
     @requires_api_key
-    def start_vllm():
-        """Start the vLLM server"""
-        logger.info("Starting vLLM server...")
-        print("Starting vLLM server...")
-        global vllm_process
+    def manage_vllm():
         try:
-            if vllm_process and vllm_process.poll() is None:
-                return jsonify({"message": "vLLM server is already running"}), 400
+            data = request.json
+            action = data.get("action")
+            if action not in ["start", "stop", "restart"]:
+                return (
+                    jsonify(
+                        {
+                            "error": "Invalid action. Must be 'start', 'stop', or 'restart'"
+                        }
+                    ),
+                    400,
+                )
 
-            # Construct the command
-            cmd = [
-                "vllm",
-                "serve",
-                "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
-                "--quantization",
-                "bitsandbytes",
-                "--load-format",
-                "bitsandbytes",
-                "--max-model-len",
-                "2048",
-                "--max-num-batched-tokens",
-                "2048",
-                "--gpu-memory-utilization",
-                "0.95",
-                "--max-num-seqs",
-                "32",
-                "--host",
-                "0.0.0.0",
-                "--port",
-                "8000",
-            ]
-
-            print(f"cmd: {cmd}")
-
-            # Start the vLLM server
-            vllm_process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            # Run the shell script with the provided action
+            result = subprocess.run(
+                [
+                    "/home/japoeder/pydev/quantum_trade/llm_server/manage_vllm.sh",
+                    action,
+                ],
+                capture_output=True,
+                text=True,
             )
 
-            return (
-                jsonify({"message": "vLLM server started", "pid": vllm_process.pid}),
-                200,
-            )
+            if result.returncode == 0:
+                return (
+                    jsonify(
+                        {
+                            "status": "success",
+                            "message": result.stdout.strip(),
+                        }
+                    ),
+                    200,
+                )
+            else:
+                return (
+                    jsonify(
+                        {
+                            "status": "error",
+                            "message": result.stderr.strip(),
+                        }
+                    ),
+                    500,
+                )
 
         except Exception as e:
-            logger.error(f"Error starting vLLM server: {str(e)}")
-            return jsonify({"error": str(e)}), 500
-
-    @app.route("/bachman/stop_vllm", methods=["POST"])
-    @requires_api_key
-    def stop_vllm():
-        """Stop the vLLM server"""
-        global vllm_process
-        try:
-            if not vllm_process:
-                return jsonify({"message": "vLLM server is not running"}), 400
-
-            # Get the process group
-            try:
-                parent = psutil.Process(vllm_process.pid)
-                children = parent.children(recursive=True)
-
-                # Stop children first
-                for child in children:
-                    child.terminate()
-
-                # Stop parent
-                parent.terminate()
-
-                # Wait for processes to terminate
-                gone, alive = psutil.wait_procs([parent] + children, timeout=3)
-                print(f"gone: {gone}")
-                print(f"alive: {alive}")
-
-                # Force kill if still alive
-                for p in alive:
-                    p.kill()
-
-            except psutil.NoSuchProcess:
-                pass  # Process already terminated
-
-            vllm_process = None
-            return jsonify({"message": "vLLM server stopped"}), 200
-
-        except Exception as e:
-            logger.error(f"Error stopping vLLM server: {str(e)}")
+            logger.error(f"Error managing vLLM: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
     @app.route("/bachman/vllm/status", methods=["GET"])
