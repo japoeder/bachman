@@ -601,6 +601,8 @@ def create_app():
                 "8000",
             ]
 
+            print(f"cmd: {cmd}")
+
             # Start the vLLM server
             vllm_process = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
