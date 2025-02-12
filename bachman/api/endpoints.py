@@ -6,7 +6,6 @@ import logging
 import asyncio
 import json
 import subprocess
-import os
 
 # import psutil
 
@@ -587,36 +586,22 @@ def create_app():
                     400,
                 )
 
-            # Add debug logging
-            # logger.info(
-            #     f"Current user: {subprocess.check_output('whoami', text=True).strip()}"
-            # )
-            logger.info(f"Current working directory: {os.getcwd()}")
-
-            # Make sure script is executable
-            script_path = "/home/japoeder/pydev/quantum_trade/llm_server/manage_vllm.sh"
-            os.chmod(script_path, 0o755)  # Make executable if not already
-
-            # Run with explicit shell and full environment
-            process = subprocess.Popen(
-                f"bash {script_path} {action}",
-                shell=True,
-                env={**os.environ, "PATH": f"{os.environ.get('PATH')}:/usr/local/bin"},
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+            # Run the shell script with the provided action
+            result = subprocess.run(
+                [
+                    "/home/japoeder/pydev/quantum_trade/llm_server/manage_vllm.sh",
+                    action,
+                ],
+                capture_output=True,
                 text=True,
             )
 
-            stdout, stderr = process.communicate()
-            logger.info(f"Script output: {stdout}")
-            logger.error(f"Script errors: {stderr}")
-
-            if process.returncode == 0:
+            if result.returncode == 0:
                 return (
                     jsonify(
                         {
                             "status": "success",
-                            "message": stdout.strip(),
+                            "message": result.stdout.strip(),
                         }
                     ),
                     200,
@@ -626,7 +611,7 @@ def create_app():
                     jsonify(
                         {
                             "status": "error",
-                            "message": stderr.strip(),
+                            "message": result.stderr.strip(),
                         }
                     ),
                     500,
@@ -634,7 +619,6 @@ def create_app():
 
         except Exception as e:
             logger.error(f"Error managing vLLM: {str(e)}")
-            logger.exception("Full traceback:")  # This will log the full stack trace
             return jsonify({"error": str(e)}), 500
 
     @app.route("/bachman/vllm/status", methods=["GET"])
