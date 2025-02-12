@@ -576,7 +576,7 @@ def create_app():
         try:
             data = request.json
             action = data.get("action")
-            pid = data.get("pid")
+            # pid = data.get("pid")
             if action not in ["start", "stop", "restart"]:
                 return (
                     jsonify(
@@ -596,7 +596,7 @@ def create_app():
                 capture_output=True,
                 text=True,
             )
-            if action == "stop" and pid:
+            if action == "stop":
                 # Use full path to pkill
                 result = subprocess.run(
                     ["su", "japoeder", "-c", "/usr/bin/pkill", "vllm"],
