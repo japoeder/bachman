@@ -586,22 +586,25 @@ def create_app():
                     400,
                 )
 
-            # Run the shell script with the provided action
-            result = subprocess.run(
+            # Run the shell script using Popen
+            process = subprocess.Popen(
                 [
                     "/home/japoeder/pydev/quantum_trade/llm_server/manage_vllm.sh",
                     action,
                 ],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
             )
 
-            if result.returncode == 0:
+            stdout, stderr = process.communicate()
+
+            if process.returncode == 0:
                 return (
                     jsonify(
                         {
                             "status": "success",
-                            "message": result.stdout.strip(),
+                            "message": stdout.strip(),
                         }
                     ),
                     200,
@@ -611,7 +614,7 @@ def create_app():
                     jsonify(
                         {
                             "status": "error",
-                            "message": result.stderr.strip(),
+                            "message": stderr.strip(),
                         }
                     ),
                     500,
