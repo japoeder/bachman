@@ -588,9 +588,9 @@ def create_app():
                 )
 
             # Add debug logging
-            logger.info(
-                f"Current user: {subprocess.check_output('whoami', text=True).strip()}"
-            )
+            # logger.info(
+            #     f"Current user: {subprocess.check_output('whoami', text=True).strip()}"
+            # )
             logger.info(f"Current working directory: {os.getcwd()}")
 
             # Make sure script is executable
