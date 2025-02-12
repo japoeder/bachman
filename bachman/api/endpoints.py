@@ -599,7 +599,7 @@ def create_app():
             if action == "stop" and pid:
                 # Use full path to pkill
                 result = subprocess.run(
-                    ["/usr/bin/pkill", "-9", str(pid)], capture_output=True, text=True
+                    ["/usr/bin/pkill", "vllm"], capture_output=True, text=True
                 )
 
             if result.returncode == 0:
