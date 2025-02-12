@@ -599,7 +599,7 @@ def create_app():
             if action == "stop":
                 # Use full path to pkill
                 result = subprocess.run(
-                    ["su", "japoeder", "-c", "/usr/bin/pkill", "vllm"],
+                    ["/usr/bin/pkill", "vllm"],
                     capture_output=True,
                     text=True,
                 )
