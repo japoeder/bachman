@@ -596,11 +596,9 @@ def create_app():
                 capture_output=True,
                 text=True,
             )
-            if action == "stop":
+            if action == "stop" and pid:
                 result = subprocess.run(
-                    [
-                        f"pkill -9 {pid}",
-                    ],
+                    ["pkill", "-9", str(pid)], capture_output=True, text=True
                 )
 
             if result.returncode == 0:
