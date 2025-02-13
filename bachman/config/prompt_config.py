@@ -17,11 +17,9 @@ def prompt_config(
     if inference_type == "sentiment":
         if entity_type == "org":
             if doc_type == "financial_document":
-                prompt = f"""You are a financial analyst tasked with analyzing a {doc_type}. 
-                        Please analyze the following document sections and provide a comprehensive analysis.
-
-                        Document Type: {doc_type}
-                        Ticker: {ticker}
+                prompt = f"""You are a financial analyst tasked with analyzing a {doc_type} for {ticker}.
+                        Please provide a comprehensive analysis of the following document sections for the ticker.
+                        If competitors discussed, please ensure ticker assessment is impacted.
                         
                         Document Sections:
                         {chunks_text}
@@ -29,42 +27,32 @@ def prompt_config(
                         Analyze the document and provide your analysis in the following JSON format:
                         {{
                             "dominant_sentiment": "POSITIVE/NEGATIVE/NEUTRAL",
-                            "confidence_level": "1-10",
-                            "time_horizon": "SHORT_TERM/MEDIUM_TERM/LONG_TERM",
+                            "confidence_level": "1, 2, 3, 4, 5, 6, 7, 8, 9, or 10",
+                            "time_horizon": "IMMEDIATE/SHORT/MEDIUM/LONG",
                             "trading_signal": "BUY/HOLD/SELL",
                             "key_themes": [
                                 "List of key themes identified",
                                 "Each as a separate string"
                             ],
                             "supporting_evidence": {{
-                                "revenue": "Quote about revenue",
-                                "market_position": "Quote about market position",
-                                "risks": "Quote about risks"
-                            }},
-                            "analysis_details": {{
-                                "financial_metrics": {{
-                                    "revenue_trend": "description",
-                                    "profit_margins": "description",
-                                    "cash_flow": "description",
-                                    "debt_levels": "description"
-                                }},
-                                "business_performance": {{
-                                    "market_position": "description",
-                                    "competitive_advantages": "description",
-                                    "risk_factors": "description"
-                                }}
+                                "revenue": "Revenue description",
+                                "solvency": "Solvency description",
+                                "liquidity": "Liquidity description",
+                                "profitability": "Profitability description",
+                                "growth": "Growth description",
+                                "cash_flow": "Cash flow description",
+                                "market_impact": "Market impact description",
+                                "risks": "Risks description"
                             }}
                         }}
 
-                        Ensure your response is valid JSON and includes all the fields specified above for the aforementioned ticker.
+                        Please only return valid JSON that includes all the fields specified above. If not enough info
+                        to fill in a field, please say "No data."
                         """
             elif doc_type == "news_article":
-                prompt = f"""You are a financial analyst tasked with analyzing a {doc_type} for {ticker}. 
-                        Please analyze the following article content and provide a sentiment analysis.
-                        The goal is to rate the sentiment of the article as positive, negative, or neutral and
-                        provide a buy, sell, or hold recommendation based on the sentiment.  Both should correspond
-                        to the specific ticker mentioned above.  You can also provide confidence level for the 
-                        recommendation.
+                prompt = f"""You are a financial analyst tasked with analyzing a {doc_type} for {ticker}.
+                        Please provide a comprehensive analysis of the following document sections for the ticker.
+                        If competitors discussed, please ensure ticker assessment is impacted.
 
                         Content:
                         {chunks_text}
@@ -72,27 +60,32 @@ def prompt_config(
                         Provide your analysis in the following JSON format:
                         {{
                             "dominant_sentiment": "POSITIVE/NEGATIVE/NEUTRAL",
-                            "confidence_level": "1-10",
+                            "confidence_level": "1, 2, 3, 4, 5, 6, 7, 8, 9, or 10",
+                            "time_horizon": "IMMEDIATE/SHORT/MEDIUM/LONG",
                             "trading_signal": "BUY/HOLD/SELL",
                             "key_themes": [
                                 "List of key themes identified",
                                 "Each as a separate string"
                             ],
                             "supporting_evidence": {{
-                                "key_quotes": ["relevant quote 1", "relevant quote 2"],
-                                "market_impact": "brief description"
+                                "revenue": "Revenue description",
+                                "solvency": "Solvency description",
+                                "liquidity": "Liquidity description",
+                                "profitability": "Profitability description",
+                                "growth": "Growth description",
+                                "cash_flow": "Cash flow description",
+                                "market_impact": "Market impact description",
+                                "risks": "Risks description"
                             }}
                         }}                        
 
-                        Ensure your response is valid JSON and includes all the fields specified above for the aforementioned ticker.
+                        Please only return valid JSON that includes all the fields specified above. If not enough info
+                        to fill in a field, please say "No data."
                         """
             elif doc_type == "reddit_content":
-                prompt = f"""You are a financial analyst tasked with analyzing a {doc_type} for {ticker}. 
-                        Please analyze the following article content and provide a sentiment analysis.
-                        The goal is to rate the sentiment of the article as positive, negative, or neutral and
-                        provide a buy, sell, or hold recommendation based on the sentiment.  Both should correspond
-                        to the specific ticker mentioned above.  You can also provide confidence level for the 
-                        recommendation.
+                prompt = f"""You are a financial analyst tasked with analyzing a {doc_type} for {ticker}.
+                        Please provide a comprehensive analysis of the following document sections for the ticker.
+                        If competitors discussed, please ensure ticker assessment is impacted.
 
                         Comment or Post Content:
                         {chunks_text}
@@ -100,18 +93,26 @@ def prompt_config(
                         Provide your analysis in the following JSON format:
                         {{
                             "dominant_sentiment": "POSITIVE/NEGATIVE/NEUTRAL",
-                            "confidence_level": "1-10",
+                            "confidence_level": "1, 2, 3, 4, 5, 6, 7, 8, 9, or 10",
+                            "time_horizon": "IMMEDIATE/SHORT/MEDIUM/LONG",
                             "trading_signal": "BUY/HOLD/SELL",
                             "key_themes": [
                                 "List of key themes identified",
                                 "Each as a separate string"
                             ],
                             "supporting_evidence": {{
-                                "key_quotes": ["relevant quote 1", "relevant quote 2"],
-                                "market_impact": "brief description"
+                                "revenue": "Revenue description",
+                                "solvency": "Solvency description",
+                                "liquidity": "Liquidity description",
+                                "profitability": "Profitability description",
+                                "growth": "Growth description",
+                                "cash_flow": "Cash flow description",
+                                "market_impact": "Market impact description",
+                                "risks": "Risks description"
                             }}
                         }}
 
-                        Ensure your response is valid JSON and includes all the fields specified above for the aforementioned ticker.
+                        Please only return valid JSON that includes all the fields specified above. If not enough info
+                        to fill in a field, please say "No data."
                         """
     return prompt

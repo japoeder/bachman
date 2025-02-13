@@ -8,6 +8,10 @@ from dataclasses import dataclass
 import requests
 import pandas as pd
 import numpy as np
+from quantum_trade_utilities.data.load_credentials import load_credentials
+from quantum_trade_utilities.core.get_path import get_path
+from openai import OpenAI
+
 from bachman.config.prompt_config import prompt_config
 from bachman.models.llm import get_groq_llm
 
@@ -31,6 +35,10 @@ class AnalysisProcessor:
     def __init__(self, vector_store):
         """Initialize with vector store connection."""
         self.vector_store = vector_store
+        creds_path = get_path("creds")
+        vllm_details = load_credentials(creds_path, "vllm_ds")
+        self.vllm_host = vllm_details[0]
+        self.vllm_port = vllm_details[1]
 
     def prepare_analysis(
         self,
@@ -66,7 +74,7 @@ class AnalysisProcessor:
 
             docs = response.json()
 
-            if not docs[0]:
+            if len(docs) == 0:
                 logger.warning(
                     f"No documents found for doc_id: {doc_id} in collection: {collection_name}"
                 )
@@ -95,18 +103,16 @@ class AnalysisProcessor:
 
                 for doc in docs:
                     try:
-                        tid = int(doc["payload"]["metadata"]["table_index"])
-                        pid = int(doc["payload"]["metadata"]["page"])
-                        print(tid, pid)
-                        total_tables += 1
+                        tid = int(doc["payload"]["metadata"]["table_index"]) / int(
+                            doc["payload"]["metadata"]["table_index"]
+                        )
+                        total_tables += tid
                     except:
                         continue
 
                 for doc in docs:
                     try:
                         total_chunks = doc["payload"]["metadata"]["total_chunks"]
-                        pid = int(doc["payload"]["metadata"]["page"])
-                        print(total_chunks, pid)
                     except:
                         continue
 
@@ -140,6 +146,12 @@ class AnalysisProcessor:
             llm_response_structure["doc_type"] = doc_type
             llm_response_structure["metadata"] = metadata
             llm_response_structure["collection_name"] = collection_name
+            llm_response_structure["inference"] = {
+                "inference_type": inference_type,
+                "entity_type": entity_type,
+                "inference_model": inference_model,
+                "inference_provider": inference_provider,
+            }
             llm_response_structure["doc_grp"] = {}
             doc_grp_index = 0
 
@@ -202,18 +214,23 @@ class AnalysisProcessor:
                     logger.info(f"Generated prompt for doc_id {doc_id}:")
                     logger.info(analysis_prompt)
 
-                    # Use the Groq client from llm.py
-                    groq_client = get_groq_llm()
-                    response = groq_client.invoke(
-                        messages=[{"role": "user", "content": analysis_prompt}],
-                        model=inference_model,
+                    # Use specified inference_provider
+                    response = self._get_inference_response(
+                        analysis_prompt,
+                        inference_provider,
+                        inference_model,
                     )
-                    cleaned_response = json.loads(response.content)
+
+                    cleaned_response = json.loads(response)
                     llm_response_structure["doc_grp"][doc_grp_index][
                         "response"
                     ] = cleaned_response
                     # Log response for debugging
-                    logger.info(f"Groq API response: {cleaned_response}")
+                    logger.info(
+                        f"{inference_provider} API response: {cleaned_response}"
+                    )
+
+                    doc_grp_index += 1
 
             else:
                 start_chunk = 0
@@ -263,18 +280,21 @@ class AnalysisProcessor:
                     logger.info(f"Generated prompt for doc_id {doc_id}:")
                     logger.info(analysis_prompt)
 
-                    # Use the Groq client from llm.py
-                    groq_client = get_groq_llm()
-                    response = groq_client.invoke(
-                        messages=[{"role": "user", "content": analysis_prompt}],
-                        model=inference_model,
+                    # Use specified inference_provider
+                    response = self._get_inference_response(
+                        analysis_prompt,
+                        inference_provider,
+                        inference_model,
                     )
-                    cleaned_response = json.loads(response.content)
+
+                    cleaned_response = json.loads(response)
                     llm_response_structure["doc_grp"][doc_grp_index][
                         "response"
                     ] = cleaned_response
                     # Log response for debugging
-                    logger.info(f"Groq API response: {cleaned_response}")
+                    logger.info(
+                        f"{inference_provider} API response: {cleaned_response}"
+                    )
 
                     start_chunk = end_chunk + 1
                     doc_grp_index += 1
@@ -366,7 +386,8 @@ class AnalysisProcessor:
         self, df, value_column, llm_context_window, base_prompt_len
     ):
         # Create a copy to avoid modifying the original
-        df = df.copy()
+        # Reset index to avoid issues with cumulative sum
+        df = df.copy().reset_index(drop=False)
 
         # Initialize the new columns
         df["cumsum"] = 0
@@ -387,7 +408,7 @@ class AnalysisProcessor:
                     return None
                 elif idx == 0:
                     logger.warning(
-                        "First chunk + base prompt exceeds context window. Need smaller chunks or base prompt."
+                        f"First chunk:{cumsum} + base prompt:{base_prompt_len} exceeds context window. Need smaller chunks or base prompt."
                     )
                     return None
                 cumsum = value  # reset to current value
@@ -396,3 +417,57 @@ class AnalysisProcessor:
             df.at[idx, "doc_grp"] = doc_grp
 
         return df
+
+    def _get_inference_response(
+        self, analysis_prompt, inference_provider, inference_model
+    ):
+        response_content = None
+        if inference_provider == "groq":
+            groq_client = get_groq_llm()
+            response = groq_client.invoke(
+                messages=[{"role": "user", "content": analysis_prompt}],
+                model=inference_model,
+            )
+            response_content = response.content
+
+        elif inference_provider == "vllm":
+            # Modify OpenAI's API key and API base to use VLLM's API server.
+            openai_api_key = "EMPTY"
+            openai_api_base = f"http://{self.vllm_host}:{self.vllm_port}/v1"
+            client = OpenAI(
+                api_key=openai_api_key,
+                base_url=openai_api_base,
+            )
+
+            models = client.models.list()
+            model = models.data[0].id
+
+            messages = [
+                {
+                    "role": "user",
+                    "content": "Return ONLY a JSON response with no explanation or thinking process. "
+                    + analysis_prompt,
+                }
+            ]
+            response = client.chat.completions.create(model=model, messages=messages)
+
+            raw_response = response.choices[0].message.content
+            response_content = self._extract_vllm_json(raw_response)
+
+        return response_content
+
+    def _extract_vllm_json(self, text):
+        # Convert to lowercase for case-insensitive split
+        lower_text = text.lower()
+        parts = lower_text.split("</think>")
+
+        json_part = parts[1]
+        # Find first { and last }
+        start = json_part.find("{")
+        end = json_part.rfind("}") + 1
+        if start >= 0 and end > 0:
+            # Use these indices on the original text
+            original_start = text.lower().find("{")
+            original_end = text.lower().rfind("}") + 1
+            return text[original_start:original_end]
+        return None
