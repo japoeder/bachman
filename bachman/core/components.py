@@ -50,10 +50,18 @@ class Components:
             self.embedding_config = self.load_embedding_config()
             self.collection_config = self.load_qdrant_collection_configs()
 
+            # Initialize embeddings and vector store
+            self.embeddings = get_embeddings()
+            self.vector_store = VectorStore(
+                host=self.qdrant_host,
+                port=self.qdrant_port,
+                embedding_function=self.embeddings,
+            )
+
             # Initialize non-GPU components
             llm = get_groq_llm()
             self.sentiment_analyzer = SentimentAnalyzer(llm=llm)
-            logger.info("Sentiment analyzer initialized successfully")
+            logger.info("Components initialized successfully")
 
             return True
         except Exception as e:
