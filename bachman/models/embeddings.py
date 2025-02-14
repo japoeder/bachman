@@ -132,9 +132,12 @@ def get_embeddings(
         system_info = get_system_info()
         logger.info(f"System information: {system_info}")
 
-        model_kwargs = {"device": "cpu", "trust_remote_code": True}
+        device_type, device_name = check_gpu_availability()
+        logger.info(f"Using device: {device_name} ({device_type})")
+
+        model_kwargs = {"device": device_type, "trust_remote_code": True}
         encode_kwargs = {
-            "device": "cpu",
+            "device": device_type,
             "normalize_embeddings": True,
             "batch_size": 16,
         }
