@@ -71,6 +71,15 @@ def create_app():
             inference_model = inf_specs.get("model")
             inference_provider = inf_specs.get("provider", "groq")
 
+            print(f"collection_name: {collection_name}")
+            print(f"metadata: {metadata}")
+            print(f"doc_id: {doc_id}")
+            print(f"inf_specs: {inf_specs}")
+            print(f"inference_type: {inference_type}")
+            print(f"entity_type: {entity_type}")
+            print(f"inference_model: {inference_model}")
+            print(f"inference_provider: {inference_provider}")
+
             # Create new components instance for this request
             components = Components(qdrant_host=QDRANT_HOST)
             components.initialize_components()
