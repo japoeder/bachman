@@ -50,25 +50,7 @@ class Components:
             self.embedding_config = self.load_embedding_config()
             self.collection_config = self.load_qdrant_collection_configs()
 
-            # Then initialize components that use them
-            self.embeddings = get_embeddings()
-            self.vector_store = VectorStore(
-                host=self.qdrant_host,
-                port=self.qdrant_port,
-                embedding_function=self.embeddings,
-            )
-            self.text_processor = TextProcessor(
-                vector_store=self.vector_store,
-                chunking_config=self.chunking_config,
-            )
-            logger.info("Text processor initialized successfully")
-
-            self.file_processor = FileProcessor(
-                text_processor=self.text_processor,
-                vector_store=self.vector_store,
-            )
-            logger.info("File processor initialized successfully")
-
+            # Initialize non-GPU components
             llm = get_groq_llm()
             self.sentiment_analyzer = SentimentAnalyzer(llm=llm)
             logger.info("Sentiment analyzer initialized successfully")
@@ -78,6 +60,34 @@ class Components:
             logger.error(f"Failed to initialize components: {str(e)}")
             logger.error("Full traceback:", exc_info=True)
             return False
+
+    def initialize_embeddings(self):
+        """Initialize embedding-related components on demand."""
+        self.embeddings = get_embeddings()
+        self.vector_store = VectorStore(
+            host=self.qdrant_host,
+            port=self.qdrant_port,
+            embedding_function=self.embeddings,
+        )
+        self.text_processor = TextProcessor(
+            vector_store=self.vector_store,
+            chunking_config=self.chunking_config,
+        )
+        self.file_processor = FileProcessor(
+            text_processor=self.text_processor,
+            vector_store=self.vector_store,
+        )
+        logger.info("Embedding components initialized successfully")
+
+    def cleanup_embeddings(self):
+        """Cleanup embedding resources."""
+        if hasattr(self.embeddings, "clear_gpu_memory"):
+            self.embeddings.clear_gpu_memory()
+        self.embeddings = None
+        self.vector_store = None
+        self.text_processor = None
+        self.file_processor = None
+        logger.info("Embedding components cleaned up")
 
     def initialize_text_processor(self, vector_store):
         """Initialize the text processor."""

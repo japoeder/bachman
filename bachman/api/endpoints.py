@@ -134,6 +134,10 @@ def create_app():
     def process_text():
         """Text processing endpoint without sentiment analysis."""
         try:
+            components = Components(qdrant_host=QDRANT_HOST)
+            components.initialize_components()
+            components.initialize_embeddings()  # Initialize when needed
+
             data = request.json
             if not data:
                 return jsonify({"error": "No data provided"}), 400
@@ -145,8 +149,6 @@ def create_app():
             collection_name = data.get("collection_name")
 
             # Create new components instance for this request
-            components = Components(qdrant_host=QDRANT_HOST)
-            components.initialize_components()
             components.vector_store.create_collection(collection_name=collection_name)
 
             # Check if the document already exists in the collection
@@ -184,6 +186,7 @@ def create_app():
                     for k, v in result.items():
                         print(f"{spacer} {k}: {v}")
                     logger.info("=" * 80)
+                    components.cleanup_embeddings()  # Cleanup after use
                     return jsonify(result), 200
 
             chunking_configs = components.load_chunking_config()
@@ -217,6 +220,7 @@ def create_app():
                 )
             )
 
+            components.cleanup_embeddings()  # Cleanup after use
             return jsonify(result), 200
 
         except Exception as e:
@@ -228,6 +232,10 @@ def create_app():
     def process_file():
         """Process a file and store its contents."""
         try:
+            components = Components(qdrant_host=QDRANT_HOST)
+            components.initialize_components()
+            components.initialize_embeddings()  # Initialize when needed
+
             data = request.get_json()
             # Extract required parameters
             file_path = data.get("file_path")
@@ -242,8 +250,6 @@ def create_app():
             print(f"This is the doc_id for reference: {doc_id}")
 
             # Create new components instance for this request
-            components = Components(qdrant_host=QDRANT_HOST)
-            components.initialize_components()
             components.vector_store.create_collection(collection_name=collection_name)
 
             # Check if the document already exists in the collection
@@ -281,6 +287,7 @@ def create_app():
                     for k, v in result.items():
                         print(f"{spacer} {k}: {v}")
                     logger.info("=" * 80)
+                    components.cleanup_embeddings()  # Cleanup after use
                     return jsonify(result), 200
 
             if not file_path or not collection_name:
@@ -303,6 +310,7 @@ def create_app():
                 )
             )
 
+            components.cleanup_embeddings()  # Cleanup after use
             return jsonify(result), 200
 
         except Exception as e:

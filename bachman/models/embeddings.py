@@ -132,26 +132,13 @@ def get_embeddings(
         system_info = get_system_info()
         logger.info(f"System information: {system_info}")
 
-        # device_type, device_name = check_gpu_availability()
-        # logger.info(f"Using device: {device_name} ({device_type})")
-
-        # Set both model and encode kwargs to use the same device
-        model_kwargs = {"device": "cpu", "trust_remote_code": True}  # Force CPU
+        model_kwargs = {"device": "cpu", "trust_remote_code": True}
         encode_kwargs = {
-            "device": "cpu",  # Force CPU
+            "device": "cpu",
             "normalize_embeddings": True,
             "batch_size": 16,
         }
 
-        # # Adjust batch size based on device
-        # if device_type == "cuda":
-        #     encode_kwargs["batch_size"] = 64  # Larger batches for CUDA
-        # elif device_type == "mps":
-        #     encode_kwargs["batch_size"] = 32  # Medium batches for Apple Silicon
-        # else:
-        encode_kwargs["batch_size"] = 16  # Smaller batches for CPU
-
-        # Override defaults with any provided kwargs
         model_kwargs.update(kwargs.get("model_kwargs", {}))
         encode_kwargs.update(kwargs.get("encode_kwargs", {}))
 
@@ -164,15 +151,6 @@ def get_embeddings(
             model_kwargs=model_kwargs,
             encode_kwargs=encode_kwargs,
         )
-
-        # # Log device placement
-        # if device_type in ["cuda", "mps"]:
-        #     if device_type == "cuda":
-        #         logger.info(
-        #             f"GPU Memory allocated: {torch.cuda.memory_allocated() / 1024**2:.2f} MB"
-        #         )
-        #     elif device_type == "mps":
-        #         logger.info("Model loaded on Apple Silicon GPU")
 
         return embeddings
 
