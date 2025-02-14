@@ -28,13 +28,13 @@ def check_gpu_availability():
         logger.info(f"PyTorch version: {torch.__version__}")
 
         # Production: Check for CUDA first
-        # if torch.cuda.is_available():
-        #     device_type = "cuda"
-        #     device_name = torch.cuda.get_device_name(0)
-        #     logger.info(f"CUDA GPU available: {device_name}")
-        #     logger.info(f"CUDA version: {torch.version.cuda}")
-        #     logger.info(f"CUDA device count: {torch.cuda.device_count()}")
-        #     return device_type, device_name
+        if torch.cuda.is_available():
+            device_type = "cuda"
+            device_name = torch.cuda.get_device_name(0)
+            logger.info(f"CUDA GPU available: {device_name}")
+            logger.info(f"CUDA version: {torch.version.cuda}")
+            logger.info(f"CUDA device count: {torch.cuda.device_count()}")
+            return device_type, device_name
 
         # Development: Check for Apple Silicon
         if system == "Darwin" and "arm" in processor.lower():
