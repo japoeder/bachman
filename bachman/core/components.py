@@ -45,38 +45,33 @@ class Components:
         try:
             logger.info("Starting component initialization...")
 
-            # Initialize embeddings
-            self.embeddings = get_embeddings()
+            # Load configs first
+            self.chunking_config = self.load_chunking_config()
+            self.embedding_config = self.load_embedding_config()
+            self.collection_config = self.load_qdrant_collection_configs()
 
-            # Initialize vector store
+            # Then initialize components that use them
+            self.embeddings = get_embeddings()
             self.vector_store = VectorStore(
                 host=self.qdrant_host,
                 port=self.qdrant_port,
                 embedding_function=self.embeddings,
             )
-
-            # Initialize text processor with chunking config
             self.text_processor = TextProcessor(
                 vector_store=self.vector_store,
-                chunking_config=self.chunking_config,  # Pass the chunking config
+                chunking_config=self.chunking_config,
             )
             logger.info("Text processor initialized successfully")
 
-            # Initialize file processor with text processor
             self.file_processor = FileProcessor(
                 text_processor=self.text_processor,
                 vector_store=self.vector_store,
             )
             logger.info("File processor initialized successfully")
 
-            # Initialize LLM and sentiment analyzer
             llm = get_groq_llm()
             self.sentiment_analyzer = SentimentAnalyzer(llm=llm)
             logger.info("Sentiment analyzer initialized successfully")
-
-            self.chunking_config = self.load_chunking_config()
-            self.embedding_config = self.load_embedding_config()
-            self.collection_config = self.load_qdrant_collection_configs()
 
             return True
         except Exception as e:

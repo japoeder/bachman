@@ -28,13 +28,13 @@ def check_gpu_availability():
         logger.info(f"PyTorch version: {torch.__version__}")
 
         # Production: Check for CUDA first
-        if torch.cuda.is_available():
-            device_type = "cuda"
-            device_name = torch.cuda.get_device_name(0)
-            logger.info(f"CUDA GPU available: {device_name}")
-            logger.info(f"CUDA version: {torch.version.cuda}")
-            logger.info(f"CUDA device count: {torch.cuda.device_count()}")
-            return device_type, device_name
+        # if torch.cuda.is_available():
+        #     device_type = "cuda"
+        #     device_name = torch.cuda.get_device_name(0)
+        #     logger.info(f"CUDA GPU available: {device_name}")
+        #     logger.info(f"CUDA version: {torch.version.cuda}")
+        #     logger.info(f"CUDA device count: {torch.cuda.device_count()}")
+        #     return device_type, device_name
 
         # Development: Check for Apple Silicon
         if system == "Darwin" and "arm" in processor.lower():
@@ -78,11 +78,11 @@ def get_system_info():
         "processor": platform.processor(),
         "python_version": platform.python_version(),
         "torch_version": torch.__version__,
-        "cuda_available": torch.cuda.is_available(),
-        "cuda_version": torch.version.cuda if torch.cuda.is_available() else None,
+        # "cuda_available": torch.cuda.is_available(),
+        # "cuda_version": torch.version.cuda if torch.cuda.is_available() else None,
         "mps_available": torch.backends.mps.is_available()
         if hasattr(torch.backends, "mps")
         else False,
-        "device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
+        # "device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
         "environment_device": os.environ.get("BACHMAN_DEVICE_TYPE", None),
     }

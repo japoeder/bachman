@@ -37,7 +37,8 @@ from typing import List, Dict, Any, Optional  # , Union
 # import traceback
 # import asyncio
 import psutil
-import torch
+
+# import torch
 
 # Third-party imports
 from langchain.schema import Document
@@ -205,9 +206,9 @@ class VectorStore:
                     logger.debug(
                         f"CPU Usage before batch {i//batch_size + 1}: {cpu_percent}%"
                     )
-                    if torch.cuda.is_available():
-                        gpu_memory = torch.cuda.memory_allocated() / 1024**2
-                        logger.debug(f"GPU Memory allocated: {gpu_memory:.2f} MB")
+                    # if torch.cuda.is_available():
+                    #     gpu_memory = torch.cuda.memory_allocated() / 1024**2
+                    #     logger.debug(f"GPU Memory allocated: {gpu_memory:.2f} MB")
 
                     logger.debug(f"Processing batch {i//batch_size + 1}")
                     self.vectorstore.add_documents(documents=batch)
@@ -216,9 +217,9 @@ class VectorStore:
                     # Log resource usage after batch
                     cpu_percent = psutil.cpu_percent(interval=1)
                     logger.debug(f"CPU Usage after batch: {cpu_percent}%")
-                    if torch.cuda.is_available():
-                        gpu_memory = torch.cuda.memory_allocated() / 1024**2
-                        logger.debug(f"GPU Memory after batch: {gpu_memory:.2f} MB")
+                    # if torch.cuda.is_available():
+                    #     gpu_memory = torch.cuda.memory_allocated() / 1024**2
+                    #     logger.debug(f"GPU Memory after batch: {gpu_memory:.2f} MB")
 
                 except Exception as e:
                     logger.error(f"Error adding batch {i//batch_size + 1}: {str(e)}")
