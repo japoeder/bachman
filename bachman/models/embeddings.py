@@ -120,7 +120,7 @@ class HuggingFaceEmbeddingsWithCleanup(HuggingFaceEmbeddings):
 
 
 def get_embeddings(
-    provider: str = "huggingface", **kwargs
+    provider: str = "huggingface", device_override: str = None, **kwargs
 ) -> Union[HuggingFaceEmbeddingsWithCleanup, GroqEmbeddings]:
     """Initialize and return embeddings model."""
     try:
@@ -132,7 +132,17 @@ def get_embeddings(
         system_info = get_system_info()
         logger.info(f"System information: {system_info}")
 
-        device_type, device_name = check_gpu_availability()
+        # Check if GPU is available
+        available_device_type, available_device_name = check_gpu_availability()
+
+        # Default to GPU unless explicitly overridden to use CPU
+        if device_override and device_override.lower() == "cpu":
+            device_type = "cpu"
+            device_name = "CPU (forced)"
+        else:
+            device_type = available_device_type  # Will be 'cuda' if GPU is available
+            device_name = available_device_name
+
         logger.info(f"Using device: {device_name} ({device_type})")
 
         model_kwargs = {"device": device_type, "trust_remote_code": True}

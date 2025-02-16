@@ -69,9 +69,9 @@ class Components:
             logger.error("Full traceback:", exc_info=True)
             return False
 
-    def initialize_embeddings(self):
+    def initialize_embeddings(self, device_override: str = None):
         """Initialize embedding-related components on demand."""
-        self.embeddings = get_embeddings()
+        self.embeddings = get_embeddings(device_override=device_override)
         self.vector_store = VectorStore(
             host=self.qdrant_host,
             port=self.qdrant_port,

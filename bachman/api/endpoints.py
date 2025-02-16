@@ -134,15 +134,18 @@ def create_app():
     def process_text():
         """Text processing endpoint without sentiment analysis."""
         try:
-            components = Components(qdrant_host=QDRANT_HOST)
-            components.initialize_components()
-            components.initialize_embeddings()  # Initialize when needed
-
             data = request.json
             if not data:
                 return jsonify({"error": "No data provided"}), 400
 
             metadata = data.get("metadata", {})
+            embedding_config = metadata.get("embedding_config", {})
+            device = embedding_config.get("device", None)
+
+            components = Components(qdrant_host=QDRANT_HOST)
+            components.initialize_components()
+            components.initialize_embeddings(device_override=device)
+
             doc_type = metadata.get("doc_type", "unspecified_content")
             skip_if_exists = data.get("skip_if_exists", True)
             doc_id = metadata.get("doc_id")
@@ -232,15 +235,18 @@ def create_app():
     def process_file():
         """Process a file and store its contents."""
         try:
+            data = request.get_json()
+            metadata = data.get("metadata", {})
+            embedding_config = metadata.get("embedding_config", {})
+            device = embedding_config.get("device", None)
+
             components = Components(qdrant_host=QDRANT_HOST)
             components.initialize_components()
-            components.initialize_embeddings()  # Initialize when needed
+            components.initialize_embeddings(device_override=device)
 
-            data = request.get_json()
             # Extract required parameters
             file_path = data.get("file_path")
             collection_name = data.get("collection_name")
-            metadata = data.get("metadata", {})
             doc_type = metadata.get("doc_type", "unspecified_content")
             temp_dir = data.get("temp_dir")
             cleanup = data.get("cleanup", True)
