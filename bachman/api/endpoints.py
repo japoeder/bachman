@@ -353,9 +353,11 @@ def create_app():
             limit = data.get("limit", 100)
             if not data:
                 return jsonify({"error": "No data provided"}), 400
+            device = "cpu"
 
             components = Components(qdrant_host=QDRANT_HOST)
             components.initialize_components()
+            components.initialize_embeddings(device_override=device)
 
             # Log just the search request details
             logger.info("=" * 80)
@@ -471,9 +473,11 @@ def create_app():
     def delete():
         """Delete endpoint to remove either specific points or an entire collection based on metadata."""
         try:
-            # Create new components instance for this request
+            device = "cpu"
+
             components = Components(qdrant_host=QDRANT_HOST)
             components.initialize_components()
+            components.initialize_embeddings(device_override=device)
 
             data = request.json
             if not data:

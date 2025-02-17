@@ -132,14 +132,13 @@ def get_embeddings(
         system_info = get_system_info()
         logger.info(f"System information: {system_info}")
 
-        # Check if GPU is available
-        available_device_type, available_device_name = check_gpu_availability()
-
         # Default to GPU unless explicitly overridden to use CPU
         if device_override and device_override.lower() == "cpu":
             device_type = "cpu"
             device_name = "CPU (forced)"
         else:
+            # Check if GPU is available
+            available_device_type, available_device_name = check_gpu_availability()
             device_type = available_device_type  # Will be 'cuda' if GPU is available
             device_name = available_device_name
 
