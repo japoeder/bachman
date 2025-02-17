@@ -50,12 +50,11 @@ class Components:
             self.embedding_config = self.load_embedding_config()
             self.collection_config = self.load_qdrant_collection_configs()
 
-            # Initialize embeddings and vector store
-            self.embeddings = get_embeddings()
+            # Initialize vector store without embeddings initially
             self.vector_store = VectorStore(
                 host=self.qdrant_host,
                 port=self.qdrant_port,
-                embedding_function=self.embeddings,
+                embedding_function=None,  # Remove initial embeddings
             )
 
             # Initialize non-GPU components
