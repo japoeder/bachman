@@ -1,7 +1,7 @@
 # Core data science packages with compatible versions
 numpy==1.24.3
 pandas==2.1.4
-pyarrow>=14.0.0
+pyarrow>=14.0.1
 
 # Keep other packages as they are
 pre-commit
